@@ -61,7 +61,7 @@ struct Entry {
     rank: usize,
 }
 
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     s.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {

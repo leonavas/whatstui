@@ -590,6 +590,12 @@ fn choose(p: &Pick) -> Result<Vec<PathBuf>, String> {
     Err("Sem seletor de arquivos: instale o zenity, ou cole com Ctrl+V.".into())
 }
 
+/// One file through the same chooser (your profile photo); None when
+/// it's cancelled.
+pub(crate) fn choose_one(label: &'static str, exts: &'static [&'static str]) -> Result<Option<PathBuf>, String> {
+    choose(&Pick { icon: "", label, color: Color::Reset, exts }).map(|v| v.into_iter().next())
+}
+
 // ---- the clipboard ---------------------------------------------------------
 
 /// Picture types we can read, the usual first.

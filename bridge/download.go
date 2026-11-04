@@ -4,13 +4,17 @@ package main
 // with it, and `download` fetches it into the cache on demand.
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"encoding/binary"
 	"errors"
 	"io"
 	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -197,15 +201,31 @@ func (b *Bridge) storeMedia(chat, id string, md *Media, part *waE2E.Message, waC
 var exts = map[string]string{
 	"audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/amr": "amr",
 	"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "video/mp4": "mp4", "video/3gpp": "3gp", "application/pdf": "pdf",
+	// Documents, whatever the system's mime types say.
+	"text/plain": "txt", "text/csv": "csv", "text/markdown": "md", "application/rtf": "rtf", "application/epub+zip": "epub",
+	"application/msword": "doc", "application/vnd.ms-excel": "xls", "application/vnd.ms-powerpoint": "ppt",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "docx",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "xlsx",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+	"application/vnd.oasis.opendocument.text":                                   "odt", "application/vnd.oasis.opendocument.spreadsheet": "ods",
+	"application/vnd.oasis.opendocument.presentation": "odp",
+	"application/zip": "zip", "application/x-zip-compressed": "zip", "application/vnd.rar": "rar", "application/x-rar-compressed": "rar",
+	"application/x-7z-compressed": "7z", "image/gif": "gif", "image/heic": "heic", "video/quicktime": "mov", "video/webm": "webm",
 }
 
+// extOf is the extension a media's file gets from the type its sender
+// declared: letters and digits only, so it never makes a path of its own.
 func extOf(mimeType string) string {
 	t, _, _ := mime.ParseMediaType(mimeType)
 	if e, ok := exts[t]; ok {
 		return e
 	}
 	if es, _ := mime.ExtensionsByType(t); len(es) > 0 {
-		return strings.TrimPrefix(es[0], ".")
+		if e := strings.TrimPrefix(es[0], "."); e != "" && len(e) <= 8 && strings.IndexFunc(e, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+		}) < 0 {
+			return e
+		}
 	}
 	return "bin"
 }
@@ -238,8 +258,16 @@ func touch(paths ...string) {
 	}
 }
 
-// sweep removes, at start and once a day, the media not seen and the
-// profile pictures not asked for (fetched at most daily) in keepUnseen.
+// The cache folder kept under this. Media seen in the last keepSeen stays
+// even over it: it may be on screen or playing.
+const (
+	cacheBudget = 900 << 20
+	keepSeen    = time.Hour
+)
+
+// sweep removes, at start and once an hour, the media not seen and the
+// profile pictures not asked for (fetched at most daily) in keepUnseen,
+// then trims the cache to cacheBudget.
 func (b *Bridge) sweep() {
 	for {
 		for _, dir := range []string{mediaDir(), filepath.Join(b.dir, "avatars")} {
@@ -250,11 +278,96 @@ func (b *Bridge) sweep() {
 				}
 			}
 		}
-		time.Sleep(24 * time.Hour)
+		trimCache()
+		time.Sleep(time.Hour)
 	}
 }
 
+// trimCache brings the cache folder (~/.cache/whatsapp-tui) under
+// cacheBudget, the media least recently seen going first.
+func trimCache() {
+	root := filepath.Dir(mediaDir())
+	total := dirSize(root)
+	if total <= cacheBudget {
+		return
+	}
+	type file struct {
+		path string
+		size int64
+		seen time.Time
+	}
+	var files []file
+	entries, _ := os.ReadDir(mediaDir())
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && !strings.HasSuffix(e.Name(), ".tmp") {
+			files = append(files, file{filepath.Join(mediaDir(), e.Name()), info.Size(), info.ModTime()})
+		}
+	}
+	slices.SortFunc(files, func(a, b file) int { return a.seen.Compare(b.seen) })
+	var freed int64
+	for _, f := range files {
+		if total <= cacheBudget || time.Since(f.seen) < keepSeen {
+			break
+		}
+		if os.Remove(f.path) == nil {
+			total -= f.size
+			freed += f.size
+		}
+	}
+	if freed > 0 {
+		logf("cache over budget: %d MB of media removed, %d MB left", freed>>20, total>>20)
+	}
+}
+
+// dirSize is what the regular files under dir take, in bytes.
+func dirSize(dir string) int64 {
+	var n int64
+	filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				n += info.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+// writeFile writes a picture the TUI will show: a PNG without its text
+// and color-profile chunks (see pngSafe).
 func writeFile(path string, data []byte) error {
+	return writeRaw(path, pngSafe(data))
+}
+
+// pngSafe drops a PNG's tEXt, zTXt, iTXt and iCCP chunks: compressed, a few
+// kilobytes of them can grow to gigabytes in a decoder, and the pictures
+// come from anyone. What isn't a PNG is left as it is.
+func pngSafe(data []byte) []byte {
+	sig := []byte("\x89PNG\r\n\x1a\n")
+	if !bytes.HasPrefix(data, sig) {
+		return data
+	}
+	out := append(make([]byte, 0, len(data)), sig...)
+	for p := len(sig); p+12 <= len(data); {
+		end := p + 12 + int(binary.BigEndian.Uint32(data[p:]))
+		if end > len(data) {
+			break
+		}
+		kind := string(data[p+4 : p+8])
+		switch kind {
+		case "tEXt", "zTXt", "iTXt", "iCCP":
+		default:
+			out = append(out, data[p:end]...)
+		}
+		if kind == "IEND" {
+			break
+		}
+		p = end
+	}
+	return out
+}
+
+func writeRaw(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -280,7 +393,7 @@ func linkOrCopy(from, to string) error {
 	}
 	defer in.Close()
 	tmp := to + ".tmp"
-	out, err := os.Create(tmp)
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -327,13 +440,15 @@ func (b *Bridge) download(chat, id string, auto bool) {
 	var blob []byte
 	var fromMe bool
 	var ts int64
-	err := b.db.QueryRow(`SELECT COALESCE(mime, ''), COALESCE(kind, ''), proto, COALESCE(media.wa_chat, ''), COALESCE(media.wa_sender, ''), sender, from_me, ts
+	err := b.db.QueryRow(`SELECT COALESCE(mime, ''), COALESCE(media.kind, ''), proto, COALESCE(media.wa_chat, ''), COALESCE(media.wa_sender, ''), sender, from_me, ts
 		FROM messages LEFT JOIN media USING (chat, id) WHERE chat = ? AND id = ?`, chat, id).
 		Scan(&mimeType, &kind, &blob, &waChat, &waSender, &sender, &fromMe, &ts)
 	if err != nil {
 		if !auto {
 			logf("download %s %s: not stored: %v", chat, id, err)
 			mediaFailed(chat, id, unavailable)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			logf("download %s %s (auto): %v", chat, id, err)
 		}
 		return
 	}
@@ -390,6 +505,10 @@ func (b *Bridge) fetch(part *waE2E.Message, path string) error {
 	}
 	if err != nil {
 		return err
+	}
+	// A document is kept as sent: the TUI never draws it.
+	if part.GetDocumentMessage() != nil {
+		return writeRaw(path, data)
 	}
 	return writeFile(path, data)
 }

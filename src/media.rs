@@ -140,6 +140,12 @@ pub fn draw(f: &mut Frame, app: &mut App, s: &PicSpot, rect: Rect) {
             Some(Picture::Ready(i)) => Some(i),
             _ => None,
         });
+        // The tiny thumbnail the message carries, blurred until the file's
+        // here, as WhatsApp Web's, rather than stretched into blocks; a
+        // downloaded video's frame (the bridge's ".frame.jpg") is sharp.
+        let thumb = src.as_deref() == Some(s.thumb.as_str()) && !s.thumb.ends_with(".frame.jpg") && !s.sticker;
+        let soft = img.filter(|_| thumb).map(|i| i.blur((i.width().max(i.height()) as f32 / 30.0).max(1.5)));
+        let img = soft.as_ref().or(img);
         let (w, h) = (rect.width as u32 * cell.0, rect.height as u32 * cell.1);
         let center = middle(rect, cell);
         let pic = match img {

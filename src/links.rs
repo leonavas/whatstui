@@ -25,12 +25,15 @@ pub fn find(text: &str) -> Vec<(usize, usize, String)> {
             a += 1;
         }
         // A closing paren stays when the link opened one, as in Wikipedia's.
+        let open = chars[a..b].iter().filter(|&&c| c == '(').count();
+        let mut close = chars[a..b].iter().filter(|&&c| c == ')').count();
         while a < b {
             let c = chars[b - 1];
-            let open = chars[a..b].iter().filter(|&&c| c == '(').count();
-            let close = chars[a..b].iter().filter(|&&c| c == ')').count();
             if ".,;:!?]}>\"'*_~".contains(c) || (c == ')' && close > open) {
                 b -= 1;
+                if c == ')' {
+                    close -= 1;
+                }
             } else {
                 break;
             }
@@ -69,6 +72,9 @@ fn email(s: &str) -> bool {
 /// whatever was drawn over them keeps its text. The escapes would count in
 /// ratatui's width, hence the forced one.
 pub fn osc8(buf: &mut Buffer, rect: Rect, url: &str, is_link: impl Fn(&ratatui::buffer::Cell) -> bool) {
+    if url.chars().any(char::is_control) {
+        return;
+    }
     // One id for every piece, so a wrapped link lights up whole on hover.
     let id = url.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
     for x in rect.left()..rect.right() {
@@ -83,6 +89,9 @@ pub fn osc8(buf: &mut Buffer, rect: Rect, url: &str, is_link: impl Fn(&ratatui::
 /// Opens it in the browser. Quiet, as the browser's output would land on the
 /// TUI, and reaped off the main thread.
 pub fn open(url: &str) {
+    if url.chars().any(char::is_control) {
+        return;
+    }
     let child = std::process::Command::new("xdg-open")
         .arg(url)
         .stdin(std::process::Stdio::null())

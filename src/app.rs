@@ -12,6 +12,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
+/// How far a wheel notch goes: lines of messages, rows of chats.
+const WHEEL_LINES: usize = 6;
+const WHEEL_CHATS: usize = 3;
+
 #[derive(PartialEq)]
 pub enum Phase {
     Starting,
@@ -275,6 +279,10 @@ pub struct App {
     pub recheck_cell: bool,
     /// The `:` emoji autocomplete over the message box.
     pub emoji: crate::emoji::Popup,
+    /// The @ list in a group's message box.
+    pub mention: crate::mention::Picker,
+    /// "Dados da mensagem": who got and read one of yours.
+    pub msg_info: Option<crate::msginfo::Info>,
     /// The emoji panel the smiley opens.
     pub emoji_panel: crate::emoji_panel::Panel,
     /// Files attached to the message box, and the clip's menu.
@@ -296,6 +304,8 @@ pub struct App {
     /// The column between the list and the conversation, dragged to resize the list.
     pub divider: crate::divider::Divider,
     bridge: Option<Bridge>,
+    /// Events queued by a previous helper must not enter the next account.
+    bridge_generation: u64,
     pub(crate) tx: Sender<Ev>,
 }
 
@@ -370,6 +380,8 @@ impl App {
             protocols: HashMap::new(),
             recheck_cell: false,
             emoji: Default::default(),
+            mention: Default::default(),
+            msg_info: None,
             emoji_panel: crate::emoji_panel::Panel::load(),
             attach: Default::default(),
             drafts: Default::default(),
@@ -381,6 +393,7 @@ impl App {
             settings: crate::config::Settings::load(),
             divider: crate::divider::Divider::load(),
             bridge: None,
+            bridge_generation: 0,
             tx,
         };
         app.start();
@@ -389,8 +402,9 @@ impl App {
     }
 
     fn start(&mut self) {
+        self.bridge_generation = self.bridge_generation.wrapping_add(1);
         self.bridge = None;
-        match Bridge::spawn(self.tx.clone()) {
+        match Bridge::spawn(self.tx.clone(), self.bridge_generation) {
             Ok(b) => {
                 self.bridge = Some(b);
                 self.phase = Phase::Starting;
@@ -699,6 +713,7 @@ impl App {
         match ev {
             Ev::Remote(cmd) => self.on_remote(cmd),
             Ev::Update(note) => self.on_update(note),
+            Ev::MyPhoto(res) => self.on_my_photo(res),
             Ev::Term(TermEvent::FocusGained) => {
                 self.recheck_cell = true;
                 self.set_focused(true)
@@ -709,7 +724,11 @@ impl App {
                 self.recheck_cell = true
             }
             Ev::Term(TermEvent::FocusLost) => self.set_focused(false),
-            Ev::Bridge(e) => self.on_bridge(e),
+            Ev::Bridge { generation, event } => {
+                if generation == self.bridge_generation {
+                    self.on_bridge(event);
+                }
+            }
             Ev::Attach(e) => self.on_attach(e),
             Ev::Player(e) => self.player.on(e),
             Ev::Video(e) => {
@@ -724,6 +743,8 @@ impl App {
             Ev::Picture(path, img) => {
                 self.pictures.insert(path, img.map_or(Picture::Failed, Picture::Ready));
             }
+            // Into your name or recado, while "Perfil" has one being typed.
+            Ev::Term(TermEvent::Paste(s)) if self.editing_profile() => self.profile_paste(&s),
             // An empty paste: the clipboard holds a picture or files.
             Ev::Term(TermEvent::Paste(s)) if self.focus == Focus::Input && s.is_empty() => self.paste_clipboard(),
             Ev::Term(TermEvent::Key(k)) => self.key(k),
@@ -734,6 +755,10 @@ impl App {
     }
 
     fn on_bridge(&mut self, e: Event) {
+        // Logout ends this helper's authority, even before its stdout closes.
+        if self.phase == Phase::LoggedOut && !matches!(&e, Event::Exited) {
+            return;
+        }
         match e {
             Event::Qr { code } => {
                 self.account.signing_out = false;
@@ -806,6 +831,7 @@ impl App {
             }
             Event::Unread { chat, msgs } => self.on_unread(chat, msgs),
             Event::Status { chat, ids, status } => {
+                self.msg_info_status(&chat, &ids);
                 if let Some(list) = self.msgs.get_mut(&chat) {
                     for m in list.iter_mut().filter(|m| m.from_me && ids.contains(&m.id)) {
                         m.status = m.status.max(status);
@@ -842,7 +868,7 @@ impl App {
                 }
             }
             Event::Search { query, contacts, messages, number } => {
-                if query == self.search.trim() {
+                if self.phase == Phase::Ready && !query.trim().is_empty() && query == self.search.trim() {
                     self.found = Some(Found { query, contacts, messages, number });
                 }
             }
@@ -861,6 +887,7 @@ impl App {
                 self.protocols.retain(|(k, _, _), _| !k.starts_with("big:") && !k.starts_with("photo:"));
                 self.photo_arrived(&path, &error);
             }
+            Event::ProfileSet { what, text, error } => self.on_profile_set(&what, text, error),
             Event::Avatar { chat, path } => {
                 let img = (!path.is_empty()).then(|| image::open(&path).ok()).flatten();
                 self.avatars.insert(chat.clone(), img.map_or(Avatar::None, Avatar::Ready));
@@ -888,6 +915,8 @@ impl App {
                 }
             }
             Event::StickerFav { chat, id, fav } => self.viewer_fav_state(&chat, &id, fav),
+            Event::MsgInfo { chat, id, receipts, others } => self.msg_info_arrived(&chat, &id, receipts, others),
+            Event::Members { chat, members } => self.members_arrived(chat, members),
             Event::ChatSubs { subs } => self.msg_menu.fwd.subs = subs,
             Event::Error { text, fatal } => {
                 if fatal {
@@ -929,8 +958,10 @@ impl App {
                     c.last_ts = m.ts;
                     // As the bridge's list has it: names for the @s, and in a group who wrote it.
                     let text = crate::markup::mentions(&m.text, &m.mentions).0;
-                    c.preview = if c.group && !m.from_me && !text.is_empty() { format!("{}: {text}", m.sender_name) } else { text };
-                    c.from_me = m.from_me;
+                    // A call goes as it is: no name before it, no ticks.
+                    let call = m.call.is_some();
+                    c.preview = if c.group && !m.from_me && !call && !text.is_empty() { format!("{}: {text}", m.sender_name) } else { text };
+                    c.from_me = m.from_me && !call;
                     c.status = m.status;
                 }
                 if new && !existed && !seen {
@@ -952,7 +983,7 @@ impl App {
                     muted: false,
                     favorite: false,
                     preview: m.text.clone(),
-                    from_me: m.from_me,
+                    from_me: m.from_me && m.call.is_none(),
                     status: m.status,
                     read_only: String::new(),
                     verified: false,
@@ -1044,6 +1075,13 @@ impl App {
     /// at once; without pictures (or, for a video, without kitty's or with
     /// the setting off) it opens outside, once it's downloaded.
     fn open_media(&mut self, h: MediaHit) {
+        // A shared place's map opens the place in Maps.
+        if let Some(url) = self.msgs.get(&h.chat).and_then(|l| l.iter().find(|m| m.id == h.id)).and_then(|m| m.place.as_ref()).map(|p| p.url.clone()) {
+            if !url.is_empty() {
+                crate::links::open(&url);
+            }
+            return;
+        }
         let inside = if h.video { self.plays_inside() } else { self.picker.is_some() };
         if inside {
             return self.open_viewer(&h.chat, &h.id, h.video, h.gif);
@@ -1115,7 +1153,17 @@ impl App {
         }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl && k.code == KeyCode::Char('c') {
-            self.quit = true;
+            // Messages picked, or text selected in them, are copied, as
+            // WhatsApp Web's; otherwise it quits.
+            if self.msg_menu.fwd.picker.is_some() {
+                return;
+            } else if self.msg_menu.select.is_some() {
+                self.copy_picked();
+            } else if self.text_sel.active() {
+                self.copy_selection();
+            } else {
+                self.quit = true;
+            }
             return;
         }
         // The viewer's over everything, also while its video has the screen.
@@ -1132,17 +1180,25 @@ impl App {
             return;
         }
         // The account menu's and dialogs' first: they cover everything.
-        if self.account_key(k) || self.chat_menu_key(k) || self.msg_menu_key(k) {
+        if self.account_key(k) || self.msg_info_key(k) || self.chat_menu_key(k) || self.msg_menu_key(k) {
             return;
         }
         // The emoji panel's and popup's keys come first, their Esc before the info panel's.
-        if self.react_key(k) || self.emoji_panel_key(k) || self.emoji_key(k) || self.attach_key(k) {
+        if self.react_key(k) || self.emoji_panel_key(k) || self.mention_key(k) || self.emoji_key(k) || self.attach_key(k) {
             return;
         }
         let page = (self.msgs_area.height as usize / 2).max(1);
         if k.code == KeyCode::Esc && self.text_sel.active() {
             self.text_sel.clear();
             return;
+        }
+        // Typing with text selected lets it go and goes on in the box.
+        let typing = !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && matches!(k.code, KeyCode::Char(_) | KeyCode::Backspace);
+        if typing && self.text_sel.active() {
+            self.text_sel.clear();
+            if self.open.is_some() && self.focus != Focus::Search {
+                self.focus_input();
+            }
         }
         if k.code == KeyCode::Esc && self.profile.is_some() {
             self.profile = None;
@@ -1255,6 +1311,13 @@ impl App {
         self.cursor = None;
         self.side_offset = 0;
         self.follow = true;
+    }
+
+    /// Forget both displayed results and a search still waiting to be sent.
+    pub(crate) fn clear_search(&mut self) {
+        self.search.clear();
+        self.found = None;
+        self.search_due = None;
     }
 
     /// The search text changed: the old answer no longer fits; ask again
@@ -1396,6 +1459,7 @@ impl App {
             return self.note("Ainda conectando; tente de novo em instantes.");
         }
         let reply = self.take_reply(&chat);
+        let text = self.mention_text(&chat, text);
         self.cmd(json!({"c": "send", "chat": chat, "text": text, "reply": reply}));
         self.input.clear();
         self.caret = 0;
@@ -1412,7 +1476,7 @@ impl App {
         if matches!(m.kind, MouseEventKind::Down(_)) {
             self.text_sel.clear();
         }
-        if self.viewer_mouse(m) || self.photo_mouse(m) || self.who_mouse(m) || self.chat_menu_mouse(m) || self.account_mouse(m) || self.msg_menu_mouse(m) || self.emoji_panel_mouse(m) || self.emoji_click(m) || self.attach_mouse(m) || self.react_mouse(m) {
+        if self.viewer_mouse(m) || self.photo_mouse(m) || self.who_mouse(m) || self.msg_info_mouse(m) || self.chat_menu_mouse(m) || self.account_mouse(m) || self.msg_menu_mouse(m) || self.emoji_panel_mouse(m) || self.emoji_click(m) || self.mention_click(m) || self.attach_mouse(m) || self.react_mouse(m) {
             return;
         }
         if self.divider_mouse(m) {
@@ -1480,6 +1544,8 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) if self.msgs_area.contains(at) && self.msg_links.iter().any(|(r, _)| r.contains(at)) => {
                 if let Some((_, url)) = self.msg_links.iter().find(|(r, _)| r.contains(at)).cloned() {
                     match url.strip_prefix(crate::markup::MENTION) {
+                        // "@todos" is nobody in particular.
+                        Some("") => {}
                         Some(jid) => {
                             let jid = jid.to_string();
                             let name = self.open.as_ref().and_then(|c| self.msgs.get(c)).and_then(|l| l.iter().flat_map(|m| &m.mentions).find(|x| x.jid == jid)).map(|x| x.name.clone());
@@ -1506,14 +1572,15 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) if self.msgs_area.contains(at) => self.select_press(at),
             MouseEventKind::Down(MouseButton::Left) if self.header_area.contains(at) => self.toggle_profile(),
             MouseEventKind::Down(MouseButton::Left) if self.search_area.contains(at) => self.focus = Focus::Search,
-            MouseEventKind::ScrollUp if self.msgs_area.contains(at) => self.scroll += 3,
-            MouseEventKind::ScrollDown if self.msgs_area.contains(at) => self.scroll = self.scroll.saturating_sub(3),
+            // A notch goes a fair way, as WhatsApp Web's wheel does.
+            MouseEventKind::ScrollUp if self.msgs_area.contains(at) => self.scroll += WHEEL_LINES,
+            MouseEventKind::ScrollDown if self.msgs_area.contains(at) => self.scroll = self.scroll.saturating_sub(WHEEL_LINES),
             MouseEventKind::ScrollUp if self.side_list.contains(at) => {
-                self.side_offset = self.side_offset.saturating_sub(1);
+                self.side_offset = self.side_offset.saturating_sub(WHEEL_CHATS);
                 self.follow = false;
             }
             MouseEventKind::ScrollDown if self.side_list.contains(at) => {
-                self.side_offset += 1;
+                self.side_offset += WHEEL_CHATS;
                 self.follow = false;
             }
             MouseEventKind::Down(MouseButton::Left) if self.side_list.contains(at) => {

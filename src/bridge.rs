@@ -75,6 +75,12 @@ pub struct Msg {
     /// A business's title, footer and buttons around the text.
     #[serde(default)]
     pub card: Option<Card>,
+    /// A shared place: its map's picture, name and address.
+    #[serde(default)]
+    pub place: Option<Place>,
+    /// A call, voice or video, and how it went; its text is the list's label.
+    #[serde(default)]
+    pub call: Option<Call>,
     /// Forwarded, how many times over (WhatsApp's score); 0 when not.
     #[serde(default)]
     pub forwarded: u32,
@@ -94,6 +100,36 @@ pub struct Mention {
     pub user: String,
     pub jid: String,
     pub name: String,
+    /// It's you: your name, not "Você".
+    pub me: bool,
+    /// "@all": everyone in the group, shown as "@todos".
+    pub all: bool,
+}
+
+/// A shared place, as WhatsApp shows it: the map, its name and address; a
+/// click opens it in Google Maps.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Place {
+    pub lat: f64,
+    pub lon: f64,
+    pub name: String,
+    pub addr: String,
+    /// Google Maps at the place (or the link it came with).
+    pub url: String,
+    /// The small map the phone sent, on disk; empty when none came.
+    pub thumb: String,
+}
+
+/// Who got, read and played one of your messages, and when (0 not yet).
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Receipt {
+    pub jid: String,
+    pub name: String,
+    pub delivered: i64,
+    pub read: i64,
+    pub played: i64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -140,6 +176,18 @@ pub struct Card {
     pub title: String,
     pub footer: String,
     pub buttons: Vec<Button>,
+}
+
+/// A call as its chat shows it. `outcome` is answered, elsewhere (on
+/// another of your devices), missed, rejected, unanswered (yours, nobody
+/// took it) or ongoing.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Call {
+    pub video: bool,
+    pub group: bool,
+    pub outcome: String,
+    pub secs: u64,
 }
 
 /// A row at the bottom of a business's message; only the ones with a URL
@@ -215,6 +263,8 @@ pub struct Member {
     pub phone: String,
     pub admin: bool,
     pub me: bool,
+    /// What follows the @ in what's sent: the number, else the hidden id.
+    pub user: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -278,6 +328,15 @@ pub enum Event {
         #[serde(default)]
         error: String,
     },
+    /// How a change to your profile went: `what` is name, about or photo,
+    /// `text` what it is now; `error` when it didn't take.
+    ProfileSet {
+        what: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        error: String,
+    },
     /// A profile picture on disk; an empty path when there's none.
     Avatar { chat: String, path: String },
     /// A message's media downloaded to `path`, or why it couldn't be.
@@ -296,6 +355,22 @@ pub enum Event {
     ChatSubs { subs: std::collections::HashMap<String, String> },
     /// Whether a sticker is among your favorites, asked or just changed.
     StickerFav { chat: String, id: String, fav: bool },
+    /// Who got, read and played one of yours; `others`, in a group, how
+    /// many are in it besides you.
+    MsgInfo {
+        chat: String,
+        id: String,
+        #[serde(default)]
+        receipts: Vec<Receipt>,
+        #[serde(default)]
+        others: Option<i64>,
+    },
+    /// A group's members, for the @ list.
+    Members {
+        chat: String,
+        #[serde(default)]
+        members: Vec<Member>,
+    },
     Error {
         text: String,
         #[serde(default)]
@@ -327,7 +402,7 @@ pub fn config_dir() -> PathBuf {
 /// The app was called zap: its folders move to the new names, the paired
 /// session with them, so nobody has to scan the QR code again. Nothing is
 /// removed; a new folder already there wins and the old one stays put.
-pub fn migrate() {
+pub fn migrate() -> std::io::Result<()> {
     for home in [("XDG_DATA_HOME", ".local/share"), ("XDG_CACHE_HOME", ".cache")] {
         let base = xdg(home.0, home.1);
         let (old, new) = (base.join("zap"), base.join(NAME));
@@ -336,6 +411,7 @@ pub fn migrate() {
         }
     }
     let data = data_dir();
+    crate::privacy::prepare_dir(&data)?;
     // With its write-ahead log: what that holds isn't in the database yet.
     if data.join("zap.db").exists() && !data.join(format!("{NAME}.db")).exists() {
         for ext in ["-wal", "-shm", ""] {
@@ -350,9 +426,10 @@ pub fn migrate() {
     let old_cache = xdg("XDG_CACHE_HOME", ".cache").join("zap").display().to_string();
     if let Ok(text) = std::fs::read_to_string(&drafts) {
         if text.contains(&old_cache) {
-            let _ = std::fs::write(&drafts, text.replace(&old_cache, &cache_dir().display().to_string()));
+            crate::privacy::write_file(&drafts, text.replace(&old_cache, &cache_dir().display().to_string()))?;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn xdg(var: &str, fallback: &str) -> PathBuf {
@@ -401,12 +478,12 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    pub fn spawn(tx: Sender<Ev>) -> Result<Bridge, String> {
+    pub fn spawn(tx: Sender<Ev>, generation: u64) -> Result<Bridge, String> {
         let data = data_dir();
-        std::fs::create_dir_all(&data).map_err(|e| format!("não criou {}: {e}", data.display()))?;
+        crate::privacy::prepare_dir(&data).map_err(|e| format!("não protegeu {}: {e}", data.display()))?;
         // The last run's log kept beside, for what happened before a restart.
         let _ = std::fs::rename(data.join("bridge.log"), data.join("bridge.log.1"));
-        let log = std::fs::File::create(data.join("bridge.log")).map_err(|e| e.to_string())?;
+        let log = crate::privacy::create_file(&data.join("bridge.log")).map_err(|e| e.to_string())?;
         let mut child = Command::new(program()?)
             .arg(&data)
             .stdin(Stdio::piped())
@@ -418,12 +495,12 @@ impl Bridge {
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if let Ok(e) = serde_json::from_str::<Event>(&line) {
-                    if tx.send(Ev::Bridge(e)).is_err() {
+                    if tx.send(Ev::Bridge { generation, event: e }).is_err() {
                         return;
                     }
                 }
             }
-            let _ = tx.send(Ev::Bridge(Event::Exited));
+            let _ = tx.send(Ev::Bridge { generation, event: Event::Exited });
         });
         let stdin = child.stdin.take();
         Ok(Bridge { child, stdin })

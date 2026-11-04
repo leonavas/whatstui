@@ -93,14 +93,20 @@ The first start shows a QR code: scan it in WhatsApp on your phone, under
 | `Ctrl+Shift+X` `M` `C` | strikethrough, monospace, code (`Alt+X` `Alt+M` `Alt+C` too) |
 | `Ctrl+Shift+9` | make the line a quote, or not |
 | `:` | emoji by name |
+| `@` in a group | mention someone, or **todos** for everyone (`↑` `↓` pick, `Enter` or `Tab` take it) |
 | `Alt+E` / `Alt+A` | the emoji panel / attach files |
 | `Ctrl+V` | paste a picture or files |
 | `Alt+S` / `,` | your account: pause notifications, profile, settings, shortcuts, disconnect |
 | `Ctrl+/` / `?` | the keyboard shortcuts (`?` from the chat list) |
+| `Ctrl+C` with messages picked or text selected | copy them (one message, its text; more, a line each with time and author) |
 | `q`, `Ctrl+C` | quit |
 
 All of them are also in your name › **Atalhos de teclado**, which follows
 whether Enter sends.
+
+Your name › **Perfil** changes your name (`n`), your recado (`r`) and your
+photo (`f`, through the file chooser; cropped square from the middle) or
+removes it (`x`), as WhatsApp Web's profile does; the phone follows.
 
 The mouse works too: click chats, links, audio players, photos and videos (open
 them in the viewer; a click outside the picture closes it), a business message's link buttons, the clip
@@ -109,16 +115,18 @@ list; right-click a chat (or click the chevron by its time) for its menu.
 
 Hovering a message shows a chevron in its corner (a right-click does the
 same) with its menu: **Responder**, **Copiar**, **Editar** (yours, for 15
-minutes), **Reagir** and **Apagar**. Responder shows the message over the
+minutes), **Reagir**, **Abrir no Maps** (a shared place), **Dados da mensagem**
+(yours: when it was delivered, read and played; in a group, by whom, and how
+many it hasn't reached yet) and **Apagar**. Responder shows the message over the
 message box, with ✕ to give up; what's sent next goes as its reply. Apagar puts a checkbox by each message to pick
-more of them (`Esc` leaves, `Enter` or the trash asks); then **Apagar para
+more of them (`Esc` leaves, `Enter` or the trash asks, `Ctrl+C` or the copy button copies them); then **Apagar para
 mim**, or **Apagar para todos** when every one picked is yours, about two and
 a half days old at most, and not in the chat with yourself.
 
 ## Photos and videos
 
 Photos and videos show inside their bubbles, as on WhatsApp Web: the
-message's thumbnail at once, the photo itself once it's downloaded (photos on
+message's thumbnail at once (blurred, as the Web's, till the file is here), the photo itself once it's downloaded (photos on
 screen download by themselves; for older ones the phone isn't asked). A click
 opens one in the viewer, as WhatsApp Web's: big over the whole window, with
 who sent it, when, and its caption. A video (GIFs too, looped and muted)
@@ -132,6 +140,13 @@ sharper frame than the thumbnail. Messages from businesses (and from
 WhatsApp itself) show their header picture, title, footer and buttons; link
 buttons open in the browser.
 
+A shared place shows the small map the phone sent, its name and address; a
+click on the map or the name opens it in Google Maps.
+
+Downloads are kept in `~/.cache/whatsapp-tui/media/`: what isn't seen in 7
+days goes, and over 900 MB the media seen longest ago goes first (it
+downloads again when it's wanted).
+
 ## Chats
 
 As on WhatsApp Web, pinned chats come first (the last pinned on top, three at
@@ -144,6 +159,16 @@ change goes to WhatsApp, so your phone and other devices follow; changes made
 there show here too. A favorite added here reaches the phone once WhatsApp
 has sent this device its favorites (that is, once you have at least one
 favorite set on the phone); until then it's kept here only.
+
+A chat read on the phone stops being unread here, with read receipts on or
+off, and edits made on the phone change their message here too. Business
+chats you haven't saved go by their verified name, as on WhatsApp Web.
+
+Calls show in their chat, centered, and as the chat's last message in the
+list: voice or video, and how they went (missed, declined, answered on
+another device, or how long they lasted). They're heard live and taken from
+the phone's call log, older ones included; only a missed call counts as
+unread. This device never rings or answers one.
 
 ## Events and scripting
 

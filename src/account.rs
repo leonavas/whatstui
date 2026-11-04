@@ -6,7 +6,7 @@ use crate::app::{App, Phase};
 use crate::bridge::Profile;
 use crate::config::{self, Opt};
 use crate::update::{Note, State};
-use crate::ui::{avatar_cells, dim, CAP_L, CAP_R, draw_avatar, phone, truncate, wrap, green, LINK_IN, TEXT};
+use crate::ui::{avatar_cells, dim, CAP_L, CAP_R, draw_avatar, phone, truncate, wrap, wrap_indexed, green, LINK_IN, TEXT};
 use chrono::{Datelike, Days, Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Margin, Position, Rect};
@@ -15,6 +15,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use serde_json::json;
+use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
 
 /// Nerd Font bell with a slash: notifications paused.
@@ -80,6 +81,83 @@ impl Item {
     }
 }
 
+/// What "Perfil" lets you change, in its order.
+#[derive(Clone, Copy, PartialEq)]
+enum Act {
+    Name,
+    About,
+    Photo,
+    RemovePhoto,
+}
+
+const ACTS: [Act; 4] = [Act::Name, Act::About, Act::Photo, Act::RemovePhoto];
+
+/// The picture types the profile photo can be picked from (what `image` reads).
+const PHOTO_EXTS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
+
+#[derive(Clone, Copy, PartialEq)]
+enum Field {
+    Name,
+    About,
+}
+
+impl Field {
+    /// WhatsApp's limits, in characters.
+    fn limit(self) -> usize {
+        match self {
+            Field::Name => 25,
+            Field::About => 139,
+        }
+    }
+}
+
+/// Your name or recado being typed in "Perfil"; `caret` counts chars.
+struct Edit {
+    field: Field,
+    text: String,
+    caret: usize,
+}
+
+impl Edit {
+    fn new(field: Field, text: &str) -> Edit {
+        let text: String = text.chars().take(field.limit()).collect();
+        let caret = text.chars().count();
+        Edit { field, text, caret }
+    }
+
+    fn len(&self) -> usize {
+        self.text.chars().count()
+    }
+
+    fn byte(&self, at: usize) -> usize {
+        self.text.char_indices().nth(at).map_or(self.text.len(), |(b, _)| b)
+    }
+
+    /// Typed or pasted at the caret, one line, up to the limit.
+    fn insert(&mut self, s: &str) {
+        let room = self.field.limit().saturating_sub(self.len());
+        let s: String = s.chars().map(|c| if c == '\n' { ' ' } else { c }).filter(|c| !c.is_control()).take(room).collect();
+        let at = self.byte(self.caret);
+        self.text.insert_str(at, &s);
+        self.caret += s.chars().count();
+    }
+
+    fn back(&mut self) {
+        if self.caret > 0 {
+            self.caret -= 1;
+            let at = self.byte(self.caret);
+            self.text.remove(at);
+        }
+    }
+
+    fn delete(&mut self) {
+        if self.caret < self.len() {
+            let at = self.byte(self.caret);
+            self.text.remove(at);
+        }
+    }
+}
+
 pub struct Popup {
     sel: Item,
     /// The notifications submenu, open, with its selected row.
@@ -98,6 +176,17 @@ pub struct Account {
     pub about: bool,
     /// "Perfil", open; what the bridge says about you once it answers.
     pub profile: Option<Option<Profile>>,
+    /// The selected row of "Perfil"'s actions, in `ACTS`.
+    profile_sel: usize,
+    /// Your name or recado, being typed.
+    edit: Option<Edit>,
+    /// "Remover foto" was chosen once; choosing it again removes it.
+    confirm_remove: bool,
+    /// A change to your profile went out (name, about or photo): until the
+    /// bridge answers.
+    saving: Option<&'static str>,
+    /// The file chooser is open for your photo.
+    picking: bool,
     /// "Desconectar" went out: the logout that follows is ours, not the phone's.
     pub signing_out: bool,
     /// A newer version, as the menu and the button by your name show it (`update`).
@@ -115,6 +204,7 @@ pub struct Account {
     /// The shortcuts' rows on screen, a page of them.
     pub(crate) shortcuts_page: u16,
     settings_rows: Vec<(Rect, usize)>,
+    profile_rows: Vec<(Rect, Act)>,
     link: Rect,
 }
 
@@ -283,6 +373,8 @@ impl App {
     /// Everything of the account that went away, on screen and on disk (the
     /// bridge wipes its own: chats, messages, pictures, downloads).
     pub(crate) fn forget_account(&mut self) {
+        self.clear_search();
+        self.names.clear();
         self.chats.clear();
         self.msgs.clear();
         self.open = None;
@@ -299,8 +391,163 @@ impl App {
 
     fn open_my_profile(&mut self) {
         let Some(jid) = self.my_jid() else { return };
-        self.account.profile = Some(None);
+        let a = &mut self.account;
+        (a.profile, a.profile_sel, a.edit, a.confirm_remove) = (Some(None), 0, None, false);
         self.cmd(json!({"c": "profile", "chat": jid}));
+    }
+
+    fn close_my_profile(&mut self) {
+        let a = &mut self.account;
+        (a.profile, a.edit, a.confirm_remove) = (None, None, false);
+    }
+
+    /// Your name or recado is being typed: a paste goes there.
+    pub(crate) fn editing_profile(&self) -> bool {
+        self.account.profile.is_some() && self.account.edit.is_some()
+    }
+
+    pub(crate) fn profile_paste(&mut self, s: &str) {
+        if let Some(e) = self.account.edit.as_mut() {
+            e.insert(s);
+        }
+    }
+
+    /// One of "Perfil"'s actions, picked by its row or its key.
+    fn profile_act(&mut self, act: Act) {
+        if self.account.saving.is_some() {
+            return;
+        }
+        if let Some(i) = ACTS.iter().position(|a| *a == act) {
+            self.account.profile_sel = i;
+        }
+        let confirmed = std::mem::take(&mut self.account.confirm_remove);
+        match act {
+            Act::Name => self.account.edit = Some(Edit::new(Field::Name, &self.me_name)),
+            Act::About => {
+                let about = self.account.profile.as_ref().and_then(|p| p.as_ref()).map(|p| p.about.clone()).unwrap_or_default();
+                self.account.edit = Some(Edit::new(Field::About, &about));
+            }
+            Act::Photo => self.pick_my_photo(),
+            Act::RemovePhoto if confirmed => {
+                self.account.saving = Some("photo");
+                self.cmd(json!({"c": "set_photo", "text": ""}));
+            }
+            Act::RemovePhoto => self.account.confirm_remove = true,
+        }
+    }
+
+    /// Enter on the name or recado being typed: sent to WhatsApp, unless
+    /// empty or unchanged.
+    fn save_edit(&mut self) {
+        let Some(e) = self.account.edit.take() else { return };
+        let text = e.text.trim().to_string();
+        if text.is_empty() {
+            self.note(if e.field == Field::Name { "O nome não pode ficar vazio." } else { "O recado não pode ficar vazio." });
+            self.account.edit = Some(e);
+            return;
+        }
+        let now = match e.field {
+            Field::Name => self.me_name.clone(),
+            Field::About => self.account.profile.as_ref().and_then(|p| p.as_ref()).map(|p| p.about.clone()).unwrap_or_default(),
+        };
+        if text == now {
+            return;
+        }
+        let (cmd, what) = if e.field == Field::Name { ("set_name", "name") } else { ("set_about", "about") };
+        self.account.saving = Some(what);
+        self.cmd(json!({"c": cmd, "text": text}));
+    }
+
+    /// "Trocar foto": the desktop's file chooser, then the picture made
+    /// ready for WhatsApp, off the UI thread (`on_my_photo`).
+    fn pick_my_photo(&mut self) {
+        if std::mem::replace(&mut self.account.picking, true) {
+            return;
+        }
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let res = crate::attach::choose_one("Foto do perfil", &PHOTO_EXTS).and_then(|p| p.map(|p| square_jpeg(&p)).transpose());
+            let _ = tx.send(crate::Ev::MyPhoto(res));
+        });
+    }
+
+    /// The photo picked and made ready, to send; None when the chooser was cancelled.
+    pub(crate) fn on_my_photo(&mut self, res: Result<Option<PathBuf>, String>) {
+        self.account.picking = false;
+        match res {
+            Ok(Some(path)) => {
+                self.account.saving = Some("photo");
+                self.cmd(json!({"c": "set_photo", "text": path.to_string_lossy()}));
+            }
+            Ok(None) => {}
+            Err(e) => self.note(e),
+        }
+    }
+
+    /// How a change to your profile went: `what` is name, about or photo.
+    pub(crate) fn on_profile_set(&mut self, what: &str, text: String, error: String) {
+        self.account.saving = None;
+        if !error.is_empty() {
+            let whose = match what {
+                "name" => "seu nome",
+                "about" => "seu recado",
+                _ => "sua foto",
+            };
+            self.note(format!("não mudou {whose}: {error}"));
+            return;
+        }
+        match what {
+            "name" => {
+                self.me_name = text;
+                self.note("Nome alterado");
+            }
+            "about" => {
+                if let Some(Some(p)) = self.account.profile.as_mut() {
+                    p.about = text;
+                }
+                self.note("Recado alterado");
+            }
+            // The new picture comes as an avatar, after.
+            _ if text == "removed" => self.note("Foto do perfil removida"),
+            _ => self.note("Foto do perfil alterada"),
+        }
+    }
+
+    /// "Perfil"'s keys: the field being typed, else its actions.
+    fn profile_key(&mut self, k: KeyEvent) {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = k.modifiers.contains(KeyModifiers::ALT);
+        if let Some(e) = self.account.edit.as_mut() {
+            match k.code {
+                KeyCode::Esc => self.account.edit = None,
+                KeyCode::Enter => self.save_edit(),
+                KeyCode::Backspace => e.back(),
+                KeyCode::Delete => e.delete(),
+                KeyCode::Left => e.caret = e.caret.saturating_sub(1),
+                KeyCode::Right => e.caret = (e.caret + 1).min(e.len()),
+                KeyCode::Home => e.caret = 0,
+                KeyCode::End => e.caret = e.len(),
+                KeyCode::Char('u') if ctrl => (e.text, e.caret) = (String::new(), 0),
+                KeyCode::Char(c) if !ctrl && !alt => e.insert(&c.to_string()),
+                _ => {}
+            }
+            return;
+        }
+        let (n, sel) = (ACTS.len(), self.account.profile_sel);
+        let mv = |a: &mut Account, to: usize| {
+            (a.profile_sel, a.confirm_remove) = (to, false);
+        };
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_my_profile(),
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => mv(&mut self.account, (sel + n - 1) % n),
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => mv(&mut self.account, (sel + 1) % n),
+            KeyCode::Enter | KeyCode::Char(' ') => self.profile_act(ACTS[sel.min(n - 1)]),
+            KeyCode::Char('n') => self.profile_act(Act::Name),
+            KeyCode::Char('r') => self.profile_act(Act::About),
+            KeyCode::Char('f') => self.profile_act(Act::Photo),
+            KeyCode::Char('x') => self.profile_act(Act::RemovePhoto),
+            _ => {}
+        }
     }
 
     /// The bridge's answer about you, for "Perfil"; false when it's someone else's.
@@ -451,9 +698,7 @@ impl App {
             return alt_s;
         }
         if self.account.profile.is_some() {
-            if matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
-                self.account.profile = None;
-            }
+            self.profile_key(k);
         } else if self.account.about {
             match k.code {
                 KeyCode::Enter => crate::links::open(&format!("https://{REPO}")),
@@ -531,8 +776,18 @@ impl App {
         let a = &self.account;
         let outside = !a.dialog.contains(at);
         if a.profile.is_some() {
-            if down && outside {
-                self.account.profile = None;
+            let hit = a.profile_rows.iter().find(|(r, _)| r.contains(at)).map(|(_, x)| *x);
+            let i = hit.and_then(|x| ACTS.iter().position(|y| *y == x));
+            match (m.kind, i) {
+                (MouseEventKind::Moved, Some(i)) if a.edit.is_none() && i != a.profile_sel => {
+                    (self.account.profile_sel, self.account.confirm_remove) = (i, false);
+                }
+                (_, Some(i)) if left => {
+                    self.account.edit = None;
+                    self.profile_act(ACTS[i]);
+                }
+                _ if down && outside => self.close_my_profile(),
+                _ => {}
             }
             return true;
         }
@@ -678,6 +933,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     (a.menu_area, a.sub_area, a.dialog, a.link) = Default::default();
     a.rows.clear();
     a.settings_rows.clear();
+    a.profile_rows.clear();
     if a.menu.is_some() {
         draw_menu(f, app);
     }
@@ -906,7 +1162,55 @@ fn draw_about(f: &mut Frame, app: &mut App) {
     crate::links::osc8(f.buffer_mut(), link, &format!("https://{REPO}"), |c| c.modifier.contains(Modifier::UNDERLINED));
 }
 
-/// "Perfil": your picture, name and number, and your recado.
+/// The picture at `path` as WhatsApp keeps profile photos: upright, cropped
+/// square from the middle, 640px, a JPEG in the cache for the bridge to
+/// send (it removes it).
+fn square_jpeg(path: &Path) -> Result<PathBuf, String> {
+    use image::ImageDecoder;
+    let bad = |e: String| format!("não leu a imagem: {e}");
+    let reader = image::ImageReader::open(path).and_then(|r| r.with_guessed_format()).map_err(|e| bad(e.to_string()))?;
+    let mut dec = reader.into_decoder().map_err(|e| bad(e.to_string()))?;
+    let orientation = dec.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| bad(e.to_string()))?;
+    img.apply_orientation(orientation);
+    let img = img.resize_to_fill(640, 640, image::imageops::FilterType::Lanczos3).to_rgb8();
+    let dir = crate::bridge::cache_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let to = dir.join(format!("profile-photo-{}.jpg", std::process::id()));
+    let file = std::fs::File::create(&to).map_err(|e| format!("foto do perfil: {e}"))?;
+    image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(file), 90)
+        .encode_image(&img)
+        .map_err(|e| format!("foto do perfil: {e}"))?;
+    Ok(to)
+}
+
+/// The text being typed, wrapped to `width`, with the caret on it.
+fn edit_lines(e: &Edit, width: usize) -> Vec<Line<'static>> {
+    let rows = wrap_indexed(&e.text, width.max(1));
+    // The row and column of the caret: on the char at `e.caret`, or past the end.
+    let at = rows.iter().enumerate().find_map(|(r, (_, idx))| idx.iter().position(|i| *i >= e.caret).map(|c| (r, c)));
+    let last = rows.len().saturating_sub(1);
+    let (cr, cc) = at.unwrap_or_else(|| (last, rows.get(last).map_or(0, |(l, _)| l.chars().count())));
+    let caret = Style::new().add_modifier(Modifier::REVERSED);
+    rows.into_iter()
+        .enumerate()
+        .map(|(r, (l, _))| {
+            if r != cr {
+                return Line::from(format!(" {l}"));
+            }
+            let chars: Vec<char> = l.chars().collect();
+            let before: String = chars[..cc.min(chars.len())].iter().collect();
+            let (on, after) = match chars.get(cc) {
+                Some(c) => (c.to_string(), chars[cc + 1..].iter().collect()),
+                None => (" ".to_string(), String::new()),
+            };
+            Line::from(vec![Span::raw(format!(" {before}")), Span::styled(on, caret), Span::raw(after)])
+        })
+        .collect()
+}
+
+/// "Perfil": your picture, name and number, your name and recado to
+/// change, and your photo to change or remove.
 fn draw_profile(f: &mut Frame, app: &mut App) {
     let Some(data) = app.account.profile.clone() else { return };
     let w = 52u16.min(f.area().width.saturating_sub(4));
@@ -917,9 +1221,53 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
         Some(p) if p.about.is_empty() => "—".into(),
         Some(p) => p.about.clone(),
     };
-    let about = wrap(&about, iw.saturating_sub(2));
-    // A gap, you (two rows), a gap, the heading, the recado, a gap, the hint.
-    let h = 7 + about.len() as u16 + 2;
+    let a = &app.account;
+    let edit = a.edit.as_ref();
+    // A heading, with how much is typed while it's being changed.
+    let heading = |label: &str, field: Field| {
+        let mut spans = vec![Span::styled(label.to_string(), Style::new().fg(green()).bold())];
+        if let Some(e) = edit.filter(|e| e.field == field) {
+            spans.push(Span::styled(format!("  {}/{}", e.len(), field.limit()), dim()));
+        }
+        Line::from(spans)
+    };
+    let mut lines = vec![heading("Nome", Field::Name)];
+    match edit.filter(|e| e.field == Field::Name) {
+        Some(e) => lines.extend(edit_lines(e, iw.saturating_sub(2))),
+        None => lines.push(Line::from(format!(" {}", truncate(&my_name(app), iw.saturating_sub(1))))),
+    }
+    lines.push(heading("Recado", Field::About));
+    match edit.filter(|e| e.field == Field::About) {
+        Some(e) => lines.extend(edit_lines(e, iw.saturating_sub(2))),
+        None => lines.extend(wrap(&about, iw.saturating_sub(2)).into_iter().map(|l| Line::from(format!(" {l}")))),
+    }
+    lines.push(Line::default());
+    let acts_at = lines.len();
+    for (i, act) in ACTS.iter().enumerate() {
+        let (label, key) = match act {
+            Act::Name => ("Mudar nome", "n"),
+            Act::About => ("Mudar recado", "r"),
+            Act::Photo => ("Trocar foto", "f"),
+            Act::RemovePhoto if a.confirm_remove => ("Remover foto? Enter confirma", "x"),
+            Act::RemovePhoto => ("Remover foto", "x"),
+        };
+        let mut style = if i == a.profile_sel && edit.is_none() { Style::new().add_modifier(Modifier::REVERSED) } else { Style::new() };
+        if edit.is_some() || a.saving.is_some() {
+            style = style.patch(dim());
+        } else if *act == Act::RemovePhoto && a.confirm_remove {
+            style = style.fg(Color::Yellow).bold();
+        }
+        lines.push(Line::from(padded(label, key, iw)).style(style));
+    }
+    lines.push(Line::default());
+    let hint = match (a.saving, edit.is_some()) {
+        (Some(_), _) => format!("{} salvando…", crate::media::spin()),
+        (None, true) => "Enter salva · Esc cancela".into(),
+        (None, false) => "↑↓ move · Enter escolhe · Esc fecha".into(),
+    };
+    lines.push(Line::from(hint).style(dim()));
+    // A gap, you (two rows) and a gap over the rest.
+    let h = 4 + lines.len() as u16 + 2;
     let (_, inner) = dialog(f, app, w, h, " Perfil ");
     if inner.height < 4 {
         return;
@@ -927,9 +1275,15 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
     // Your number where the button shows the connection.
     let number = app.my_jid().map(|j| phone(&j)).unwrap_or_default();
     head(f, app, Rect::new(inner.x.saturating_sub(1), inner.y + 1, inner.width + 1, 2), &number, 0);
-    let mut lines = vec![Line::from(Span::styled("Recado", Style::new().fg(green()).bold()))];
-    lines.extend(about.into_iter().map(|l| Line::from(format!(" {l}"))));
-    lines.push(Line::default());
-    lines.push(Line::from("Esc fecha").style(dim()));
-    f.render_widget(Paragraph::new(lines), Rect::new(inner.x, inner.y + 4, inner.width, inner.height.saturating_sub(4)));
+    let body = Rect::new(inner.x, inner.y + 4, inner.width, inner.height.saturating_sub(4));
+    for (n, line) in lines.into_iter().enumerate() {
+        let row = Rect::new(body.x, body.y + n as u16, body.width, 1);
+        if row.y >= body.bottom() {
+            break;
+        }
+        if let Some(act) = n.checked_sub(acts_at).and_then(|i| ACTS.get(i)) {
+            app.account.profile_rows.push((row, *act));
+        }
+        f.render_widget(Paragraph::new(line), row);
+    }
 }

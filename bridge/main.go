@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -60,6 +61,10 @@ type Msg struct {
 	Media *Media `json:"media,omitempty"`
 	// A business's title, footer and buttons around the text.
 	Card *Card `json:"card,omitempty"`
+	// A shared place; nil for the rest.
+	Place *Place `json:"place,omitempty"`
+	// A call, voice or video, and how it went; nil for the rest.
+	Call *Call `json:"call,omitempty"`
 	// 0 pending, 1 sent, 2 delivered, 3 read.
 	Status int `json:"status"`
 	// Forwarded, how many times over (WhatsApp's forwarding score); 0 when not.
@@ -168,6 +173,8 @@ type Bridge struct {
 	avatars chan avatarReq
 	// Chat actions, one at a time and in order: a pin and its undo can't swap.
 	actions chan Cmd
+	// A round of business names is due (bizNames).
+	bizDue chan struct{}
 }
 
 type avatarReq struct {
@@ -205,7 +212,10 @@ CREATE TABLE IF NOT EXISTS chats (
 	cleared INTEGER NOT NULL DEFAULT 0,
 	-- A business's verified_level ("high" gets the check), "none" when it
 	-- has none; empty until asked.
-	verified TEXT NOT NULL DEFAULT ''
+	verified TEXT NOT NULL DEFAULT '',
+	-- A business's verified name, which WhatsApp Web shows in place of the
+	-- number; empty for people, and until it's known.
+	biz_name TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS messages (
 	chat TEXT NOT NULL,
@@ -226,6 +236,8 @@ CREATE TABLE IF NOT EXISTS messages (
 	card TEXT NOT NULL DEFAULT '',
 	-- Forwarded: its forwarding score, at least 1; 0 when it wasn't.
 	forwarded INTEGER NOT NULL DEFAULT 0,
+	-- A call's Call, as JSON; empty for the rest.
+	call TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (chat, id)
 );
 CREATE INDEX IF NOT EXISTS messages_chat_ts ON messages (chat, ts);
@@ -252,6 +264,29 @@ CREATE TABLE IF NOT EXISTS reactions (
 	ts INTEGER NOT NULL,
 	PRIMARY KEY (chat, id, sender)
 );
+-- Who got, read and played your messages, and when (the first time of
+-- each, 0 until then): the message's info.
+CREATE TABLE IF NOT EXISTS receipts (
+	chat TEXT NOT NULL,
+	id TEXT NOT NULL,
+	user TEXT NOT NULL,
+	delivered INTEGER NOT NULL DEFAULT 0,
+	read INTEGER NOT NULL DEFAULT 0,
+	played INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (chat, id, user)
+);
+-- A shared place: where, what it's called, and the small map the phone sent.
+CREATE TABLE IF NOT EXISTS places (
+	chat TEXT NOT NULL,
+	id TEXT NOT NULL,
+	lat REAL NOT NULL DEFAULT 0,
+	lon REAL NOT NULL DEFAULT 0,
+	name TEXT NOT NULL DEFAULT '',
+	addr TEXT NOT NULL DEFAULT '',
+	url TEXT NOT NULL DEFAULT '',
+	thumb BLOB,
+	PRIMARY KEY (chat, id)
+);
 -- Favorite stickers, as the app state has them: hash is the mutation's
 -- index (the file's SHA-256, base64), enc_hash the encrypted file's, action
 -- the StickerAction.
@@ -267,12 +302,14 @@ CREATE TABLE IF NOT EXISTS meta (
 `
 
 func main() {
+	// Before starting goroutines: SQLite and its sidecars must be private too.
+	syscall.Umask(0o077)
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: whatsapp-tui-bridge <data dir>")
 		os.Exit(2)
 	}
 	dir := os.Args[1]
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := privateDataDir(dir); err != nil {
 		fatal(err)
 	}
 	ctx := context.Background()
@@ -309,14 +346,16 @@ func main() {
 		`messages ADD COLUMN wa_sender TEXT NOT NULL DEFAULT ''`,
 		`messages ADD COLUMN card TEXT NOT NULL DEFAULT ''`,
 		`chats ADD COLUMN verified TEXT NOT NULL DEFAULT ''`,
+		`chats ADD COLUMN biz_name TEXT NOT NULL DEFAULT ''`,
 		`messages ADD COLUMN quote_from TEXT NOT NULL DEFAULT ''`,
 		`messages ADD COLUMN quote_id TEXT NOT NULL DEFAULT ''`,
 		`messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0`,
+		`messages ADD COLUMN call TEXT NOT NULL DEFAULT ''`,
 	} {
 		db.Exec(`ALTER TABLE ` + col)
 	}
 
-	b := &Bridge{cli: whatsmeow.NewClient(device, newLog("wa", "INFO")), db: db, dir: dir, avatars: make(chan avatarReq, 4096), actions: make(chan Cmd, 64)}
+	b := &Bridge{cli: whatsmeow.NewClient(device, newLog("wa", "INFO")), db: db, dir: dir, avatars: make(chan avatarReq, 4096), actions: make(chan Cmd, 64), bizDue: make(chan struct{}, 1)}
 	// whatsmeow's context logger, for the favorites' version (see favLog):
 	// each app state mutation logged at debug, zerolog's lowest by default.
 	b.ctx = zerolog.New(favLog{b}).Level(zerolog.DebugLevel).WithContext(ctx)
@@ -332,6 +371,7 @@ func main() {
 	go b.flushChats()
 	go b.sweep()
 	go b.chatActions()
+	go b.bizNames()
 	for range 3 {
 		go b.fetchAvatars()
 	}
@@ -418,6 +458,12 @@ func (b *Bridge) commands() {
 			go b.search(c.Text)
 		case "profile":
 			go b.profile(c.Chat)
+		case "set_name":
+			go b.setName(c.Text)
+		case "set_about":
+			go b.setAbout(c.Text)
+		case "set_photo":
+			go b.setPhoto(c.Text)
 		case "avatar":
 			select {
 			case b.avatars <- avatarReq{jid: c.Chat}:
@@ -427,6 +473,10 @@ func (b *Bridge) commands() {
 			b.actions <- c
 		case "forward":
 			go b.forward(c.Chat, c.IDs, c.To)
+		case "msg_info":
+			go b.msgInfo(c.Chat, c.ID)
+		case "members":
+			go b.members(c.Chat)
 		case "chat_subs":
 			go b.chatSubs()
 		case "download":
@@ -451,9 +501,9 @@ func (b *Bridge) handle(raw any) {
 	case *events.Connected:
 		emit(map[string]any{"t": "ready", "me": b.cli.Store.ID.User, "name": b.cli.Store.PushName})
 		go b.syncGroups()
-		go b.resyncOnce()
+		go func() { b.resyncOnce(); b.callsOnce() }()
 		go b.stickersOnce()
-		go b.bizNamesOnce()
+		b.wantBizNames()
 	case *events.LoggedOut:
 		_ = b.cli.Store.Delete(b.ctx)
 		b.wipe()
@@ -479,6 +529,8 @@ func (b *Bridge) handle(raw any) {
 		}
 	case *events.Receipt:
 		b.receipt(e)
+	case *events.CallOffer, *events.CallOfferNotice, *events.CallAccept, *events.CallReject, *events.CallTerminate:
+		b.callEvent(raw)
 	case *events.MediaRetry:
 		go b.mediaRetry(e)
 	case *events.ChatPresence:
@@ -530,7 +582,7 @@ func (b *Bridge) me() types.JID {
 // downloads. For a logout, from here or from the phone, and for a start
 // without a session, so a new one never shows the last one's chats.
 func (b *Bridge) wipe() {
-	for _, t := range []string{"chats", "messages", "media", "reactions", "fav_stickers", "meta"} {
+	for _, t := range []string{"chats", "messages", "media", "reactions", "receipts", "places", "fav_stickers", "meta"} {
 		b.db.Exec("DELETE FROM " + t)
 	}
 	b.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -556,11 +608,21 @@ func (b *Bridge) contactName(j types.JID) string {
 	if !b.stored() {
 		return ""
 	}
-	if c, err := b.cli.Store.Contacts.GetContact(b.ctx, j); err == nil && c.Found {
-		for _, n := range []string{c.FullName, c.FirstName, c.BusinessName, c.PushName} {
-			if n != "" {
-				return n
-			}
+	c, err := b.cli.Store.Contacts.GetContact(b.ctx, j)
+	if err != nil || !c.Found {
+		c = types.ContactInfo{}
+	}
+	// As WhatsApp Web: what you saved, the business's verified name (as its
+	// chat keeps it), the business name whatsmeow has, what they set.
+	if c.FullName != "" {
+		return c.FullName
+	}
+	if c.FirstName != "" {
+		return c.FirstName
+	}
+	for _, n := range []string{b.bizName(j), c.BusinessName, c.PushName} {
+		if n != "" {
+			return n
 		}
 	}
 	return ""
@@ -621,7 +683,13 @@ func (b *Bridge) message(e *events.Message, status int) *Msg {
 		b.react(chat.String(), id, sender, rm.GetText(), ts)
 		return b.load(chat.String(), id)
 	}
-	if pm := e.Message.GetProtocolMessage(); pm != nil {
+	pm := e.Message.GetProtocolMessage()
+	if sm := e.Message.GetSecretEncryptedMessage(); sm != nil {
+		if pm = b.sealedEdit(e, sm); pm == nil {
+			return nil
+		}
+	}
+	if pm != nil {
 		var text string
 		switch pm.GetType() {
 		case waE2E.ProtocolMessage_REVOKE:
@@ -644,6 +712,9 @@ func (b *Bridge) message(e *events.Message, status int) *Msg {
 			return nil
 		}
 		return b.load(chat.String(), id)
+	}
+	if cl := e.Message.GetCallLogMesssage(); cl != nil {
+		return b.callMessage(e, cl)
 	}
 	text, ok := textOf(e.Message)
 	if !ok {
@@ -690,14 +761,26 @@ func (b *Bridge) message(e *events.Message, status int) *Msg {
 	b.db.Exec(`INSERT INTO chats (jid, last_ts, wa_jid) VALUES (?, ?, ?)
 		ON CONFLICT (jid) DO UPDATE SET last_ts = max(last_ts, excluded.last_ts),
 			wa_jid = CASE WHEN wa_jid = '' THEN excluded.wa_jid ELSE wa_jid END`, m.Chat, m.TS, e.Info.Chat.ToNonAD().String())
-	// A business's level comes with each of its messages: "high" gets the check.
-	if vn := e.Info.VerifiedName; vn != nil && vn.VerifiedLevel != "" && !e.Info.IsGroup && !e.Info.IsFromMe {
-		b.db.Exec(`UPDATE chats SET verified = ? WHERE jid = ?`, vn.VerifiedLevel, m.Chat)
+	// A business's level and name come with each of its messages: "high"
+	// gets the check, the name stands in for the number.
+	if vn := e.Info.VerifiedName; vn != nil && !e.Info.IsGroup && !e.Info.IsFromMe {
+		if vn.VerifiedLevel != "" {
+			b.db.Exec(`UPDATE chats SET verified = ? WHERE jid = ?`, vn.VerifiedLevel, m.Chat)
+		}
+		b.setBizName(m.Chat, vn.Details.GetVerifiedName())
+	}
+	// Someone you haven't named, never asked: maybe a business (bizNames).
+	if chat.Server == types.DefaultUserServer && !e.Info.IsGroup {
+		var level string
+		if b.db.QueryRow(`SELECT verified FROM chats WHERE jid = ?`, m.Chat).Scan(&level) == nil && level == "" && b.savedContactName(chat) == "" {
+			b.wantBizNames()
+		}
 	}
 	if md, part := mediaOf(e.Message); md != nil {
 		b.storeMedia(m.Chat, m.ID, md, part, e.Info.Chat.String(), e.Info.Sender.String())
 		m.Media, m.part = md, part
 	}
+	m.Place = b.storePlace(m.Chat, m.ID, e.Message)
 	m.SenderName = b.senderName(sender, e.Info.PushName)
 	m.QuoteName = b.quoteName(m.QuoteFrom)
 	seen := map[string]*Mention{}
@@ -705,6 +788,31 @@ func (b *Bridge) message(e *events.Message, status int) *Msg {
 	m.Quote = withMentions(m.Quote, b.mentions(m.Quote, seen))
 	b.dirty.Store(true)
 	return m
+}
+
+// sealedEdit opens an edit the phones now send sealed with the edited
+// message's own secret, into the edit as it used to come; nil for the
+// other sealed kinds (a poll's or an event's changes) and what won't open.
+func (b *Bridge) sealedEdit(e *events.Message, sm *waE2E.SecretEncryptedMessage) *waE2E.ProtocolMessage {
+	if sm.GetSecretEncType() != waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
+		return nil
+	}
+	m, err := b.cli.DecryptSecretEncryptedMessage(b.ctx, e)
+	if err != nil {
+		logf("edit %s: %v", e.Info.ID, err)
+		return nil
+	}
+	if fp := m.GetEditedMessage().GetMessage(); fp != nil {
+		m = fp
+	}
+	pm := m.GetProtocolMessage()
+	if pm == nil {
+		pm = &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(), EditedMessage: m}
+	}
+	if pm.GetKey() == nil {
+		pm.Key = sm.GetTargetMessageKey()
+	}
+	return pm
 }
 
 func contextOf(m *waE2E.Message) *waE2E.ContextInfo {
@@ -845,8 +953,16 @@ func (b *Bridge) historySync(e *events.HistorySync) {
 			}
 			// A business's verified name, as WhatsApp Web shows it in place of
 			// the number; live messages get it from whatsmeow itself.
-			if biz := web.GetVerifiedBizName(); biz != "" && !evt.Info.IsFromMe && !evt.Info.IsGroup && b.stored() {
+			biz := web.GetVerifiedBizName()
+			if evt.Info.IsFromMe || evt.Info.IsGroup {
+				biz = ""
+			}
+			if biz != "" && b.stored() {
 				b.cli.Store.Contacts.PutBusinessName(b.ctx, b.norm(evt.Info.Sender), biz)
+			}
+			// A call: a missed call's notice, or what the phone wrote once it ended.
+			if b.historyCall(evt, web) {
+				continue
 			}
 			// WebMessageInfo: 2 server ack, 3 delivered, 4 read, 5 played.
 			status := 1
@@ -857,9 +973,25 @@ func (b *Bridge) historySync(e *events.HistorySync) {
 				status = 2
 			}
 			b.message(evt, status)
+			// On its chat too, now that the row is there.
+			b.setBizName(chat.String(), biz)
+			// Who got and read it, for its info.
+			if web.GetKey().GetFromMe() {
+				for _, r := range web.GetUserReceipt() {
+					if j, err := types.ParseJID(r.GetUserJID()); err == nil && !b.ownJID(b.norm(j)) {
+						b.receipted(chat.String(), web.GetKey().GetID(), b.norm(j).String(), r.GetReceiptTimestamp(), r.GetReadTimestamp(), r.GetPlayedTimestamp())
+					}
+				}
+			}
 			for _, r := range web.GetReactions() {
 				b.react(chat.String(), web.GetKey().GetID(), b.reactionSender(chat, r.GetKey()), r.GetText(), r.GetSenderTimestampMS()/1000)
 			}
+		}
+	}
+	// The phone's call log: each call in its chat.
+	if !onDemand {
+		for _, r := range e.Data.GetCallLogRecords() {
+			b.callRecord(r)
 		}
 	}
 	if !onDemand {
@@ -871,20 +1003,51 @@ func (b *Bridge) historySync(e *events.HistorySync) {
 func (b *Bridge) receipt(e *events.Receipt) {
 	chat := b.norm(e.Chat)
 	switch e.Type {
-	case types.ReceiptTypeReadSelf:
-		// Read on another device: no longer unread here either.
-		b.db.Exec(`UPDATE chats SET unread = 0 WHERE jid = ?`, chat.String())
-		emit(map[string]any{"t": "read", "chat": chat.String()})
+	case types.ReceiptTypeReadSelf, types.ReceiptTypePlayedSelf:
+		b.readElsewhere(chat.String(), e.MessageIDs)
 		return
 	case types.ReceiptTypeDelivered:
+		b.receiptsOf(chat, e)
+		if e.IsGroup {
+			b.groupTicks(chat, e.MessageIDs, false)
+			return
+		}
 		b.setStatus(chat, e.MessageIDs, 2)
 	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
-		// In groups a read from one member isn't "read"; v0 settles for delivered.
+		// With read receipts on, your other devices' reads come as plain
+		// ones, from you.
+		if e.IsFromMe {
+			b.readElsewhere(chat.String(), e.MessageIDs)
+			return
+		}
+		b.receiptsOf(chat, e)
+		// In groups a read from one member isn't "read": only once everyone has.
 		if e.IsGroup {
-			b.setStatus(chat, e.MessageIDs, 2)
+			b.groupTicks(chat, e.MessageIDs, true)
 		} else {
 			b.setStatus(chat, e.MessageIDs, 3)
 		}
+	}
+}
+
+// readElsewhere keeps what you read on another device: no longer unread
+// here either, except what came after the newest of those messages.
+func (b *Bridge) readElsewhere(chat string, ids []types.MessageID) {
+	var upTo int64
+	for _, id := range ids {
+		var ts int64
+		if b.db.QueryRow(`SELECT ts FROM messages WHERE chat = ? AND id = ?`, chat, id).Scan(&ts) == nil {
+			upTo = max(upTo, ts)
+		}
+	}
+	newer := 0
+	if upTo > 0 {
+		b.db.QueryRow(`SELECT count(*) FROM messages WHERE chat = ? AND from_me = 0 AND ts > ?`, chat, upTo).Scan(&newer)
+	}
+	b.db.Exec(`UPDATE chats SET marked = 0, unread = min(unread, ?) WHERE jid = ?`, newer, chat)
+	b.dirty.Store(true)
+	if newer == 0 {
+		emit(map[string]any{"t": "read", "chat": chat})
 	}
 }
 
@@ -993,8 +1156,14 @@ func (b *Bridge) fetchAvatars() {
 	}
 }
 
+// picClient fetches profile pictures: a stalled server can't hold a worker.
+var picClient = &http.Client{Timeout: 60 * time.Second}
+
+// maxPicture is more than any profile picture WhatsApp serves.
+const maxPicture = 16 << 20
+
 func download(url, path string) error {
-	resp, err := http.Get(url)
+	resp, err := picClient.Get(url)
 	if err != nil {
 		return err
 	}
@@ -1002,17 +1171,14 @@ func download(url, path string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxPicture+1))
+	if err == nil && len(data) > maxPicture {
+		err = errors.New("picture too large")
+	}
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		return err
-	}
-	f.Close()
-	return os.Rename(tmp, path)
+	return writeFile(path, data)
 }
 
 // flushChats sends the whole chat list when something changed, at most a
@@ -1030,7 +1196,7 @@ func (b *Bridge) flushChats() {
 func (b *Bridge) chats() []Chat {
 	// Cleared ones stay, empty, as on the phone.
 	rows, err := b.db.Query(`SELECT c.jid, c.name, c.last_ts, c.unread, c.marked, c.pinned, c.archived, c.mute_until, c.read_only, c.favorite, c.verified,
-		COALESCE(m.text, ''), COALESCE(m.from_me, 0), COALESCE(m.status, 0), COALESCE(m.sender, ''), COALESCE(m.push_name, '')
+		COALESCE(m.text, ''), COALESCE(m.from_me, 0), COALESCE(m.status, 0), COALESCE(m.sender, ''), COALESCE(m.push_name, ''), COALESCE(m.call, '')
 		FROM chats c LEFT JOIN messages m ON m.rowid = (
 			SELECT rowid FROM messages WHERE chat = c.jid ORDER BY ts DESC LIMIT 1)
 		WHERE m.rowid IS NOT NULL OR c.cleared > 0`)
@@ -1044,8 +1210,8 @@ func (b *Bridge) chats() []Chat {
 	for rows.Next() {
 		var c Chat
 		var mute, fav int64
-		var level, sender, push string
-		if rows.Scan(&c.JID, &c.Name, &c.LastTS, &c.Unread, &c.Marked, &c.PinTS, &c.Archived, &mute, &c.ReadOnly, &fav, &level, &c.Preview, &c.FromMe, &c.Status, &sender, &push) != nil {
+		var level, sender, push, call string
+		if rows.Scan(&c.JID, &c.Name, &c.LastTS, &c.Unread, &c.Marked, &c.PinTS, &c.Archived, &mute, &c.ReadOnly, &fav, &level, &c.Preview, &c.FromMe, &c.Status, &sender, &push, &call) != nil {
 			continue
 		}
 		jid, _ := types.ParseJID(c.JID)
@@ -1066,8 +1232,12 @@ func (b *Bridge) chats() []Chat {
 			c.Name = "Grupo"
 		}
 		c.Preview = withMentions(c.Preview, b.mentions(c.Preview, seen))
+		// A call reads as WhatsApp Web lists it: no ticks, nobody's name before it.
+		if call != "" {
+			c.FromMe, c.Status = false, 0
+		}
 		// In a group, who wrote it before it, as WhatsApp Web shows it.
-		if c.Group && !c.FromMe && sender != "" && c.Preview != "" {
+		if c.Group && !c.FromMe && call == "" && sender != "" && c.Preview != "" {
 			if j, err := types.ParseJID(sender); err == nil {
 				c.Preview = b.senderName(j, push) + ": " + c.Preview
 			}
@@ -1094,7 +1264,7 @@ func (b *Bridge) load(chat, id string) *Msg {
 
 func (b *Bridge) query(where string, args ...any) []Msg {
 	// Media's columns don't clash with what callers filter on: chat and id are the join's.
-	rows, err := b.db.Query(`SELECT chat, id, sender, push_name, from_me, ts, text, quote, quote_from, quote_id, status, card, forwarded,
+	rows, err := b.db.Query(`SELECT chat, id, sender, push_name, from_me, ts, text, quote, quote_from, quote_id, status, card, forwarded, call,
 		COALESCE(kind, ''), COALESCE(mime, ''), COALESCE(seconds, 0), COALESCE(ptt, 0), proto
 		FROM messages LEFT JOIN media USING (chat, id) `+where, args...)
 	if err != nil {
@@ -1108,9 +1278,9 @@ func (b *Bridge) query(where string, args ...any) []Msg {
 		var m Msg
 		var push string
 		var md Media
-		var card string
+		var card, call string
 		var blob []byte
-		if rows.Scan(&m.Chat, &m.ID, &m.Sender, &push, &m.FromMe, &m.TS, &m.Text, &m.Quote, &m.QuoteFrom, &m.QuoteID, &m.Status, &card, &m.Forwarded, &md.Kind, &md.Mime, &md.Seconds, &md.PTT, &blob) != nil {
+		if rows.Scan(&m.Chat, &m.ID, &m.Sender, &push, &m.FromMe, &m.TS, &m.Text, &m.Quote, &m.QuoteFrom, &m.QuoteID, &m.Status, &card, &m.Forwarded, &call, &md.Kind, &md.Mime, &md.Seconds, &md.PTT, &blob) != nil {
 			continue
 		}
 		if md.Kind != "" {
@@ -1120,6 +1290,10 @@ func (b *Bridge) query(where string, args ...any) []Msg {
 		if card != "" {
 			m.Card = &Card{}
 			json.Unmarshal([]byte(card), m.Card)
+		}
+		if call != "" {
+			m.Call = &Call{}
+			json.Unmarshal([]byte(call), m.Call)
 		}
 		key := m.Sender + "\x00" + push
 		if n, ok := names[key]; ok {
@@ -1143,6 +1317,7 @@ func (b *Bridge) query(where string, args ...any) []Msg {
 	}
 	rows.Close()
 	b.withReactions(out)
+	b.withPlaces(out)
 	return out
 }
 
@@ -1169,7 +1344,9 @@ func (b *Bridge) unread(chat string, limit int) {
 	b.db.QueryRow(`SELECT unread FROM chats WHERE jid = ?`, chat).Scan(&n)
 	ms := []Msg{}
 	if n = min(n, limit); n > 0 {
-		ms = b.query(`WHERE chat = ? AND from_me = 0 ORDER BY ts DESC LIMIT ?`, chat, n)
+		// Of the calls, only a missed one is unread.
+		ms = b.query(`WHERE chat = ? AND from_me = 0 AND NOT (call != '' AND instr(call, '"outcome":"missed"') = 0)
+			ORDER BY ts DESC LIMIT ?`, chat, n)
 		for i, j := 0, len(ms)-1; i < j; i, j = i+1, j-1 {
 			ms[i], ms[j] = ms[j], ms[i]
 		}
@@ -1194,9 +1371,19 @@ func (b *Bridge) send(chat, text, reply string) {
 	m := &Msg{Chat: chat, ID: id, Sender: me.String(), SenderName: "Você", FromMe: true, TS: time.Now().Unix(), Text: text}
 	out := &waE2E.Message{Conversation: proto.String(text)}
 	q := b.quoting(chat, reply)
-	if q != nil {
-		out = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(text), ContextInfo: q.ctx}}
+	mentioned, all := b.mentionedJIDs(jid, text)
+	if q != nil || len(mentioned) > 0 || all {
+		ci := &waE2E.ContextInfo{}
+		if q != nil {
+			ci = q.ctx
+		}
+		ci.MentionedJID = mentioned
+		if all {
+			ci.NonJIDMentions = proto.Uint32(1)
+		}
+		out = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(text), ContextInfo: ci}}
 	}
+	m.Mentions = b.mentions(text, map[string]*Mention{})
 	quote, quoteFrom, quoteID := q.cols()
 	b.db.Exec(`INSERT INTO messages (chat, id, sender, from_me, ts, text, quote, quote_from, quote_id, status) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 0)`,
 		chat, id, m.Sender, m.TS, text, quote, quoteFrom, quoteID)
@@ -1236,7 +1423,7 @@ func (b *Bridge) markRead(chat string, quiet, patch bool) {
 			logf("mark read %s: %v", chat, err)
 		}
 	}
-	ms := b.query(`WHERE chat = ? AND from_me = 0 ORDER BY ts DESC LIMIT ?`, chat, min(unread, 50))
+	ms := b.query(`WHERE chat = ? AND from_me = 0 AND call = '' ORDER BY ts DESC LIMIT ?`, chat, min(unread, 50))
 	bySender := map[string][]types.MessageID{}
 	for _, m := range ms {
 		bySender[m.Sender] = append(bySender[m.Sender], m.ID)
@@ -1435,12 +1622,15 @@ func (b *Bridge) profile(chat string) {
 			logf("user info %s: %v", jid, err)
 		} else {
 			for _, u := range info {
-				p["about"] = u.Status
+				p["about"] = b.aboutOf(ctx, jid, u.Status)
 				if u.VerifiedName != nil {
 					verified = u.VerifiedName.Details.GetVerifiedName()
 				}
 				b.setVerified(chat, u.VerifiedName)
 			}
+		}
+		if verified == "" {
+			verified = b.bizName(pn)
 		}
 		if verified == "" {
 			verified = c.BusinessName
@@ -1450,8 +1640,11 @@ func (b *Bridge) profile(chat string) {
 				verified = r[0].VerifiedName.Details.GetVerifiedName()
 			}
 		}
-		// The verified name, then what you saved or they set, then the number.
-		for _, n := range []string{verified, c.FullName, c.FirstName, c.PushName} {
+		// Kept on the chat, for its row and header.
+		b.setBizName(pn.String(), verified)
+		// As the chat list has it: what you saved, the verified name, what
+		// they set, then the number.
+		for _, n := range []string{c.FullName, c.FirstName, verified, c.PushName} {
 			if n != "" {
 				p["name"] = n
 				break

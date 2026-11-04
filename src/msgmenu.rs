@@ -30,6 +30,8 @@ const COPY: &str = "\u{f0c5}";
 const EDIT: &str = "\u{f040}";
 const TRASH: &str = "\u{f1f8}";
 const CLOSE: &str = "\u{f00d}";
+const MAP_PIN: &str = "\u{f041}";
+const INFO: &str = "\u{f05a}";
 pub(crate) const BOX_OFF: &str = "\u{f0131}";
 pub(crate) const BOX_ON: &str = "\u{f0135}";
 
@@ -55,6 +57,10 @@ enum Act {
     Edit,
     React,
     Forward,
+    /// A shared place, in Google Maps.
+    Maps,
+    /// "Dados da mensagem": who got and read one of yours.
+    Info,
     Sep,
     Delete,
 }
@@ -112,6 +118,7 @@ pub struct MsgMenu {
     area: Rect,
     close_btn: Rect,
     trash_btn: Rect,
+    copy_btn: Rect,
     edit_close: Rect,
     reply_close: Rect,
     dialog: Rect,
@@ -126,6 +133,12 @@ impl MsgMenu {
     pub fn editing(&self, chat: &str) -> bool {
         self.editing.as_ref().is_some_and(|e| e.chat == chat)
     }
+
+    /// Out of picking messages, its dialog with it.
+    pub fn end_select(&mut self) {
+        self.select = None;
+        self.confirm = None;
+    }
 }
 
 fn revoked(m: &Msg) -> bool {
@@ -139,7 +152,7 @@ const LABELS: [&str; 8] = ["📷 Foto", "🎥 Vídeo", "🎤 Áudio", "📄 ", "
 /// Whether it can be forwarded: not deleted nor a business's card, its
 /// media with keys (ours once uploaded), its content kept.
 pub(crate) fn forwardable(m: &Msg) -> bool {
-    if m.card.is_some() || revoked(m) {
+    if m.card.is_some() || m.call.is_some() || revoked(m) {
         return false;
     }
     match &m.media {
@@ -165,6 +178,8 @@ fn label(a: Act) -> (&'static str, &'static str) {
         Act::Edit => (EDIT, "Editar"),
         Act::React => (SMILEY, "Reagir"),
         Act::Forward => (crate::forward::ICON, "Encaminhar"),
+        Act::Maps => (MAP_PIN, "Abrir no Maps"),
+        Act::Info => (INFO, "Dados da mensagem"),
         Act::Delete => (TRASH, "Apagar"),
         Act::Sep => ("", ""),
     }
@@ -208,6 +223,7 @@ impl App {
         m.from_me
             && m.media.is_none()
             && m.card.is_none()
+            && m.call.is_none()
             && !revoked(m)
             && chrono::Utc::now().timestamp() - m.ts < EDIT_SECS
             && self.writable(chat)
@@ -230,6 +246,12 @@ impl App {
         }
         if forwardable(m) {
             v.push(Act::Forward);
+        }
+        if m.place.as_ref().is_some_and(|p| !p.url.is_empty()) {
+            v.push(Act::Maps);
+        }
+        if m.from_me && m.status > 0 && m.call.is_none() && !revoked(m) && !self.self_chat(chat) {
+            v.push(Act::Info);
         }
         if !v.is_empty() {
             v.push(Act::Sep);
@@ -275,6 +297,12 @@ impl App {
                 self.note("Mensagem copiada");
             }
             Act::Edit => self.start_edit(&p.chat, &p.id),
+            Act::Maps => {
+                if let Some(url) = self.find_msg(&p.chat, &p.id).and_then(|m| m.place.as_ref()).map(|pl| pl.url.clone()) {
+                    crate::links::open(&url);
+                }
+            }
+            Act::Info => self.open_msg_info(p.chat, p.id),
             Act::React => {
                 let anchor = self.bubbles.iter().find(|h| h.id == p.id).map(|h| Rect { height: 1, ..h.rect });
                 self.open_react_bar(p.id, anchor.unwrap_or(Rect::new(p.at.x, p.at.y, 1, 1)));
@@ -328,7 +356,7 @@ impl App {
         if !self.writable(&chat) {
             return;
         }
-        let list: Vec<&Msg> = self.msgs.get(&chat).map(|l| l.iter().filter(|m| !revoked(m)).collect()).unwrap_or_default();
+        let list: Vec<&Msg> = self.msgs.get(&chat).map(|l| l.iter().filter(|m| !revoked(m) && m.call.is_none()).collect()).unwrap_or_default();
         let cur = self.reply_msg().map(|m| m.id.clone());
         let at = cur.and_then(|id| list.iter().position(|m| m.id == id)).unwrap_or(list.len());
         let Some(id) = at.checked_sub(1).map(|i| list[i].id.clone()) else { return };
@@ -338,7 +366,7 @@ impl App {
     /// Up in an empty message box: your last message, if it can still be edited.
     pub fn edit_last(&mut self) -> bool {
         let Some(chat) = self.open.clone() else { return false };
-        let last = self.msgs.get(&chat).and_then(|l| l.iter().rev().find(|m| m.from_me)).cloned();
+        let last = self.msgs.get(&chat).and_then(|l| l.iter().rev().find(|m| m.from_me && m.call.is_none())).cloned();
         match last.filter(|m| self.editable(&chat, m)) {
             Some(m) => {
                 self.start_edit(&chat, &m.id);
@@ -409,7 +437,7 @@ impl App {
     /// only; off screen, it's brought to the middle.
     fn pick_step(&mut self, delta: isize) {
         let Some(s) = self.msg_menu.select.as_ref() else { return };
-        let ids: Vec<&str> = self.msgs.get(&s.chat).map(|l| l.iter().filter(|m| !s.forward || forwardable(m)).map(|m| m.id.as_str()).collect()).unwrap_or_default();
+        let ids: Vec<&str> = self.msgs.get(&s.chat).map(|l| l.iter().filter(|m| m.call.is_none() && (!s.forward || forwardable(m))).map(|m| m.id.as_str()).collect()).unwrap_or_default();
         let Some(last) = ids.len().checked_sub(1) else { return };
         let i = match s.at.as_ref().and_then(|a| ids.iter().position(|x| x == a)) {
             Some(i) => (i as isize + delta).clamp(0, last as isize) as usize,
@@ -595,6 +623,8 @@ impl App {
                 } else {
                     self.ask_delete();
                 }
+            } else if left && menu.copy_btn.contains(at) {
+                self.copy_picked();
             } else if self.newest_btn.contains(at) || !(self.msgs_area.contains(at) || self.input_area.contains(at)) {
                 return false;
             } else if left {
@@ -730,7 +760,10 @@ pub fn draw_select_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let w = area.width as usize;
     let used = 8 + count.width();
     let mut mid = vec![Span::styled("   ", bg), Span::styled(CLOSE, bg.fg(TEXT)), Span::styled("    ", bg), Span::styled(count, bg.fg(TEXT))];
-    mid.push(Span::styled(" ".repeat(w.saturating_sub(used + 4)), bg));
+    mid.push(Span::styled(" ".repeat(w.saturating_sub(used + 8)), bg));
+    // Copy, beside it, as WhatsApp's bar has.
+    mid.push(Span::styled(COPY, trash));
+    mid.push(Span::styled("   ", bg));
     mid.push(Span::styled(if forward { crate::forward::ICON } else { TRASH }, trash));
     mid.push(Span::styled("   ", bg));
     let blank = Line::from(Span::styled(" ".repeat(w), bg));
@@ -742,6 +775,7 @@ pub fn draw_select_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let y = area.y + area.height / 2;
     app.msg_menu.close_btn = Rect::new(area.x + 2, y, 3, 1);
     app.msg_menu.trash_btn = Rect::new(area.right().saturating_sub(5), y, 3, 1);
+    app.msg_menu.copy_btn = Rect::new(area.right().saturating_sub(9), y, 3, 1);
 }
 
 /// Over the message box while editing: what's edited, and ✕ to stop.

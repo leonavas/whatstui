@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,6 +138,119 @@ func (b *Bridge) setVerified(chat string, vn *types.VerifiedName) {
 	}
 }
 
+// setBizName keeps a business's verified name on its chat: the list, the
+// header and its messages go by it when you haven't saved one.
+func (b *Bridge) setBizName(chat, name string) {
+	if name == "" {
+		return
+	}
+	res, err := b.db.Exec(`UPDATE chats SET biz_name = ? WHERE jid = ? AND biz_name != ?`, name, chat, name)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		b.dirty.Store(true)
+	}
+}
+
+// bizName is the verified name a chat keeps for its business, "" when none.
+func (b *Bridge) bizName(j types.JID) string {
+	var n string
+	b.db.QueryRow(`SELECT biz_name FROM chats WHERE jid = ?`, j.String()).Scan(&n)
+	return n
+}
+
+// savedContactName is the name you gave someone, "" when none: not their
+// push name, nor a business's.
+func (b *Bridge) savedContactName(j types.JID) string {
+	if !b.stored() {
+		return ""
+	}
+	c, err := b.cli.Store.Contacts.GetContact(b.ctx, j)
+	if err != nil || c.FullName == "" {
+		return c.FirstName
+	}
+	return c.FullName
+}
+
+// wantBizNames asks for a round of bizNames, unless one is due already.
+func (b *Bridge) wantBizNames() {
+	select {
+	case b.bizDue <- struct{}{}:
+	default:
+	}
+}
+
+// bizNames asks WhatsApp about the people chats you haven't named that
+// were never asked: businesses answer with their verified name, which
+// WhatsApp Web shows in place of the number. Each chat once (the level
+// kept, "none" for people, says it was), fifty to a request, a few seconds
+// apart. A round comes on connecting and as new chats do (wantBizNames).
+func (b *Bridge) bizNames() {
+	for range b.bizDue {
+		// A history sync brings chats by the hundred: one round for them.
+		time.Sleep(10 * time.Second)
+		select {
+		case <-b.bizDue:
+		default:
+		}
+		if b.cli.IsConnected() && b.stored() {
+			b.askBizNames()
+		}
+	}
+}
+
+func (b *Bridge) askBizNames() {
+	rows, err := b.db.Query(`SELECT jid FROM chats WHERE verified = '' AND jid LIKE '%@s.whatsapp.net'`)
+	if err != nil {
+		return
+	}
+	me := b.me()
+	var jids []types.JID
+	for rows.Next() {
+		var s string
+		if rows.Scan(&s) == nil {
+			if j, err := types.ParseJID(s); err == nil && j != types.PSAJID && j.User != me.User {
+				jids = append(jids, j)
+			}
+		}
+	}
+	rows.Close()
+	// Named by you: no need to ask.
+	jids = slices.DeleteFunc(jids, func(j types.JID) bool { return b.savedContactName(j) != "" })
+	for i := 0; i < len(jids); i += 50 {
+		if i > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		batch := jids[i:min(i+50, len(jids))]
+		ctx, cancel := context.WithTimeout(b.ctx, 30*time.Second)
+		info, err := b.cli.GetUserInfo(ctx, batch)
+		cancel()
+		if err != nil {
+			// The rest on the next round.
+			logf("business names: %v", err)
+			return
+		}
+		// By number, however the answer names them; one that didn't come
+		// back is no business either.
+		got := map[string]*types.VerifiedName{}
+		for j, u := range info {
+			got[b.norm(j).String()] = u.VerifiedName
+		}
+		for _, j := range batch {
+			vn := got[j.String()]
+			b.setVerified(j.String(), vn)
+			if vn != nil {
+				b.setBizName(j.String(), vn.Details.GetVerifiedName())
+			} else if c, err := b.cli.Store.Contacts.GetContact(b.ctx, j); err == nil && c.BusinessName != "" {
+				// A business without a verified name (one on the Cloud API,
+				// say) only has the name left in the contacts.
+				b.setBizName(j.String(), c.BusinessName)
+			}
+		}
+	}
+}
+
 var askedVerified sync.Map
 
 // verifiedOnce asks, the first time a business's chat opens, whether its
@@ -167,5 +281,8 @@ func (b *Bridge) verifiedOnce(chat string) {
 	}
 	for _, u := range info {
 		b.setVerified(chat, u.VerifiedName)
+		if u.VerifiedName != nil {
+			b.setBizName(chat, u.VerifiedName.Details.GetVerifiedName())
+		}
 	}
 }

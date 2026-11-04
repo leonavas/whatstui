@@ -85,6 +85,7 @@ fn sections(app: &App) -> Vec<Section> {
                 ("Espaço", "Marcar ou desmarcar a mensagem"),
                 ("Enter", "Encaminhar (ou apagar) as marcadas"),
                 ("Esc", "Sair da seleção"),
+                ("Ctrl+C", "Copiar as marcadas, ou o texto selecionado"),
                 ("Enter", "Marcar a conversa, ao encaminhar"),
                 ("Alt+Enter / Ctrl+Enter", "Encaminhar para as marcadas"),
             ],

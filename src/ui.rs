@@ -61,6 +61,7 @@ const RULE_IN: Color = Color::Rgb(0x3A, 0x3D, 0x3E);
 const LINK_ICON: &str = "\u{f08e}";
 const REPLY_ICON: &str = "\u{f112}";
 const CALL_ICON: &str = "\u{f095}";
+const VIDEO_CALL_ICON: &str = "\u{f03d}";
 const COPY_ICON: &str = "\u{f0c5}";
 const LIST_ICON: &str = "\u{f03a}";
 /// WhatsApp's red, for a business that's closed.
@@ -755,7 +756,9 @@ fn main_view(f: &mut Frame, app: &mut App, area: Rect) {
     crate::react::draw(f, app);
     crate::react::draw_who(f, app);
     crate::msgmenu::draw(f, app);
+    crate::msginfo::draw(f, app);
     crate::emoji::draw(f, app);
+    crate::mention::draw(f, app);
     crate::emoji_panel::draw(f, app);
     crate::attach::draw_menu(f, app);
     crate::chatmenu::draw(f, app);
@@ -1729,6 +1732,14 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
             prev_day = Some(day);
             prev_sender = None;
         }
+        // A call: a pill in the middle, as the day's, with no menu.
+        if let Some(c) = &m.call {
+            out.push(Line::default());
+            starts.push((m.id.clone(), out.len()));
+            out.push(call_line(c, m.from_me, &t.format("%H:%M").to_string(), width));
+            prev_sender = None;
+            continue;
+        }
         let first = prev_sender != Some(m.sender.as_str());
         out.push(Line::default());
         let who_color = name_color(&m.sender);
@@ -1823,7 +1834,9 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
         }
         // A photo or video across the bubble, blank rows its picture goes
         // over; the text under it wraps to its width, as WhatsApp does.
-        let media = cell.and_then(|c| crate::media::shown(m).map(|md| (md, crate::media::cells(md, c, inner + 1))));
+        // A shared place: the phone's small map across the bubble, as a photo's.
+        let place_map = m.place.as_ref().filter(|p| !p.thumb.is_empty()).map(|p| crate::bridge::Media { kind: "image".into(), file: p.thumb.clone(), width: 16, height: 9, ..Default::default() });
+        let media = cell.and_then(|c| crate::media::shown(m).or(place_map.as_ref()).map(|md| (md, crate::media::cells(md, c, inner + 1))));
         let wrap = media.map_or(inner, |(_, (pw, _))| pw - 1);
         let pic_row = rows.len();
         if let Some((_, (_, ph))) = media {
@@ -1833,7 +1846,12 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
         if let Some(title) = card.map(|c| c.title.as_str()).filter(|t| !t.is_empty()) {
             rows.extend(wrap_rows(title, wrap, body.add_modifier(Modifier::BOLD)));
         }
-        let text = if media.is_some() { crate::media::caption(m) } else { m.text.as_str() };
+        let place = place_text(m, media.is_some());
+        let text = match &place {
+            Some((t, _)) => t.as_str(),
+            None if media.is_some() => crate::media::caption(m),
+            None => m.text.as_str(),
+        };
         // Links underlined in their color, on every row they wrap onto.
         let link = Style::new().fg(if m.from_me { link_out() } else { LINK_IN }).bg(bg).add_modifier(Modifier::UNDERLINED);
         let mut pieces = Vec::new();
@@ -1857,7 +1875,13 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
             // WhatsApp's formatting, its markers hidden: the rows' widths are what's shown.
             let mention = Style::new().fg(if m.from_me { link_out() } else { green() }).bg(bg);
             let looks = crate::markup::Looks { base: body, link, mention, shade: if m.from_me { code_out() } else { CODE_IN }, dim: meta_fg };
-            let (text, at) = crate::markup::mentions(text, &m.mentions);
+            let (text, mut at) = crate::markup::mentions(text, &m.mentions);
+            // A place's name is the link to it.
+            if let (Some((_, n)), Some(p)) = (&place, &m.place) {
+                if *n > 0 && !p.url.is_empty() {
+                    at.push((0, *n, p.url.clone()));
+                }
+            }
             // "(editada)" is no text to select.
             let len = text.chars().count().saturating_sub(if m.text.ends_with(crate::msgmenu::EDITED) { crate::msgmenu::EDITED.chars().count() } else { 0 });
             let (mut text, mut found, mut map) = crate::markup::rows(&text, wrap, &looks, &at);
@@ -1876,6 +1900,10 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
             }
             pieces.extend(found.into_iter().map(|(r, c, w, url)| (rows.len() + r, c, w, url)));
             glyphs = map.into_iter().enumerate().map(|(r, cells)| (rows.len() + r, cells.into_iter().filter(|c| c.2 < len).collect())).collect();
+            // A place's name and address aren't its text: nothing there to select.
+            if place.is_some() {
+                glyphs.clear();
+            }
             let n_text = text.len();
             rows.extend(text);
             n_text
@@ -2024,10 +2052,76 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
     (out, decos, starts, bigs, link_cells, audios, pics, senders, spots)
 }
 
+/// A shared place's text under its map: its name (the link to it, its
+/// length in chars the second part) and its address; without a name, the
+/// bridge's "📍 Localização" when there's no map either. None for the rest.
+fn place_text(m: &Msg, map: bool) -> Option<(String, usize)> {
+    let p = m.place.as_ref()?;
+    let name = match p.name.trim() {
+        "" if map => String::new(),
+        "" => m.text.clone(),
+        n if map => n.to_string(),
+        n => format!("📍 {n}"),
+    };
+    let n = name.chars().count();
+    let text = [name, p.addr.trim().to_string()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
+    Some((text, n))
+}
+
 /// The reactions under a bubble, as WhatsApp Web's: a pill with up to three
 /// emojis, the most used first, and how many reacted when more than one;
 /// at the bubble's left for others', its right for yours. Where it is goes
 /// to the message's spot, the last one.
+/// A call in its chat, as WhatsApp Web words it: what it was, how it went
+/// (or how long it lasted) and when; a missed one in red.
+fn call_line(c: &crate::bridge::Call, from_me: bool, time: &str, width: usize) -> Line<'static> {
+    let missed = c.outcome == "missed" && !from_me;
+    let icon = if c.video { VIDEO_CALL_ICON } else { CALL_ICON };
+    let mut what = String::from(if c.video { "Chamada de vídeo" } else { "Ligação de voz" });
+    if c.group {
+        what.push_str(" em grupo");
+    }
+    let note = match c.outcome.as_str() {
+        "answered" if c.secs > 0 => call_length(c.secs),
+        "answered" => "Atendida".into(),
+        "elsewhere" => "Atendida em outro dispositivo".into(),
+        "missed" if from_me => "Não atendida".into(),
+        "missed" => "Perdida".into(),
+        "rejected" => "Recusada".into(),
+        "unanswered" => "Não atendida".into(),
+        "ongoing" => "Em andamento".into(),
+        _ => String::new(),
+    };
+    let head = format!(" {icon} ");
+    let tail = if note.is_empty() { format!(" · {time} ") } else { format!(" · {note} · {time} ") };
+    let what = truncate(&what, width.saturating_sub(4 + head.width() + tail.width()));
+    let pad = width.saturating_sub(head.width() + what.width() + tail.width() + 2) / 2;
+    let bg = Style::new().bg(DAY_PILL);
+    let lead = if missed { CLOSED } else { META_IN };
+    Line::from(vec![
+        Span::raw(" ".repeat(pad)),
+        Span::styled(CAP_L, Style::new().fg(DAY_PILL)),
+        Span::styled(head, bg.fg(lead)),
+        Span::styled(what, bg.fg(if missed { CLOSED } else { TEXT })),
+        Span::styled(tail, bg.fg(META_IN)),
+        Span::styled(CAP_R, Style::new().fg(DAY_PILL)),
+    ])
+}
+
+/// A call's length, as WhatsApp words it: 19 segundos, 1 min 5 s, 1 h 2 min.
+fn call_length(secs: u64) -> String {
+    if secs < 60 {
+        return format!("{secs} {}", if secs == 1 { "segundo" } else { "segundos" });
+    }
+    let (h, m, s) = (secs / 3600, secs % 3600 / 60, secs % 60);
+    match (h, m, s) {
+        (0, m, 0) => format!("{m} min"),
+        (0, m, s) => format!("{m} min {s} s"),
+        (h, 0, _) => format!("{h} h"),
+        (h, m, _) => format!("{h} h {m} min"),
+    }
+}
+
 fn push_reactions(out: &mut Vec<Line<'static>>, spots: &mut [Spot], m: &Msg, x: usize, w: usize, width: usize) {
     if m.reactions.is_empty() {
         return;

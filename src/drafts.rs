@@ -111,7 +111,7 @@ impl App {
         self.drafts.last_write = Some(Instant::now());
         let path = file();
         let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, &snap).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
+        if crate::privacy::write_file(&tmp, &snap).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
             self.drafts.written = snap;
         }
     }

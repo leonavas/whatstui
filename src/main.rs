@@ -25,9 +25,12 @@ mod ipc;
 mod links;
 mod markup;
 mod media;
+mod mention;
+mod msginfo;
 mod msgmenu;
 mod photo;
 mod player;
+mod privacy;
 mod react;
 mod select;
 mod ticks;
@@ -49,7 +52,7 @@ use std::time::{Duration, Instant};
 
 pub enum Ev {
     Term(event::Event),
-    Bridge(bridge::Event),
+    Bridge { generation: u64, event: bridge::Event },
     /// The clipboard read, files picked, drafts loaded: off the UI thread.
     Attach(attach::Ev),
     /// Where the audio playing is.
@@ -63,6 +66,9 @@ pub enum Ev {
     Remote(ipc::Cmd),
     /// A newer release, or how a check or an install went (`update`).
     Update(update::Note),
+    /// Your profile photo picked and made ready to send; None when the
+    /// chooser was cancelled (`account`).
+    MyPhoto(Result<Option<std::path::PathBuf>, String>),
 }
 
 /// One cell's size in pixels, from the tty (TIOCGWINSZ), when it reports pixels.
@@ -83,7 +89,10 @@ fn main() {
         }
         _ => {}
     }
-    bridge::migrate();
+    if let Err(e) = bridge::migrate() {
+        eprintln!("whatsapp-tui: não protegeu os dados da conta: {e}");
+        std::process::exit(1);
+    }
     let start = match cli::run(&args) {
         Some(cli::Next::Exit(code)) => std::process::exit(code),
         Some(cli::Next::Start(cmd)) => cmd,

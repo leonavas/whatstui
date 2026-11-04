@@ -294,6 +294,44 @@ impl App {
         self.note("Copiado");
     }
 
+    /// Ctrl+C with text selected: copied again, as written.
+    pub(crate) fn copy_selection(&mut self) {
+        let text = self.selected_text();
+        self.copy_text(text);
+    }
+
+    /// Ctrl+C or the bar's copy while picking messages, as WhatsApp's: one,
+    /// its text alone; more, oldest first, a line each after its time and
+    /// author. What has no text (a photo, an audio) stays out, a caption goes.
+    pub(crate) fn copy_picked(&mut self) {
+        let Some(s) = self.msg_menu.select.as_ref() else { return };
+        let (text, n) = {
+            let list = self.msgs.get(&s.chat).map_or(&[][..], Vec::as_slice);
+            let mut picked: Vec<(&Msg, String)> = list
+                .iter()
+                .filter(|m| s.ids.contains(&m.id))
+                .map(|m| (m, crate::markup::mentions(&crate::msgmenu::plain(m), &m.mentions).0))
+                .filter(|(_, t)| !t.trim().is_empty())
+                .collect();
+            picked.sort_by_key(|(m, _)| m.ts);
+            let text = match picked.as_slice() {
+                [(_, t)] => t.clone(),
+                _ => picked
+                    .iter()
+                    .map(|(m, t)| format!("[{}] {}: {t}", local(m.ts).format("%H:%M, %d/%m/%Y"), author(self, &s.chat, m)))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            };
+            (text, picked.len())
+        };
+        if n == 0 {
+            return self.note("Nenhum texto para copiar");
+        }
+        crate::msgmenu::copy(&text);
+        self.msg_menu.end_select();
+        self.note(if n == 1 { "Mensagem copiada".to_string() } else { format!("{n} mensagens copiadas") });
+    }
+
     /// What's selected, as written. In one message, just that; over
     /// several, each whole but for the ends' parts, a line each after its
     /// time and author.
