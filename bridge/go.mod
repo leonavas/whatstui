@@ -1,4 +1,4 @@
-module whatsapp-tui/bridge
+module whatstui/bridge
 
 go 1.27.2
 

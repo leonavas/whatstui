@@ -426,7 +426,7 @@ pub fn draw_tip(f: &mut Frame, app: &mut App) {
         Some(Item::Chat(c)) => display_name(&c.name, &c.jid),
         Some(Item::Contact(c)) => c.name.clone(),
         Some(Item::Number(n)) => phone(&n.jid),
-        Some(Item::Archived | Item::Back) => "Arquivadas".into(),
+        Some(Item::Archived | Item::Back) => tr!("Archived", "Arquivadas").into(),
         _ => return,
     };
     let screen = f.area();

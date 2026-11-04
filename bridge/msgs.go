@@ -15,13 +15,33 @@ import (
 )
 
 // What a message deleted for everyone reads as.
-const (
-	revokedMine   = "🚫 Você apagou esta mensagem"
-	revokedOthers = "🚫 Mensagem apagada"
+var (
+	revokedMine   = tr("🚫 You deleted this message", "🚫 Você apagou esta mensagem")
+	revokedOthers = tr("🚫 This message was deleted", "🚫 Mensagem apagada")
 )
 
+// isRevoked tells a deleted message by its text, in either language: the
+// database keeps what earlier runs wrote, in whichever one they ran in.
+func isRevoked(text string) bool {
+	switch text {
+	case "🚫 You deleted this message", "🚫 Você apagou esta mensagem", "🚫 This message was deleted", "🚫 Mensagem apagada":
+		return true
+	}
+	return false
+}
+
 // What an edited message's text ends with.
-const editedMark = " (editada)"
+var editedMark = tr(" (edited)", " (editada)")
+
+// trimEdited is the text without its edited mark, in either language.
+func trimEdited(text string) string {
+	for _, m := range []string{" (edited)", " (editada)"} {
+		if t, ok := strings.CutSuffix(text, m); ok {
+			return t
+		}
+	}
+	return text
+}
 
 // removeMsgs drops messages from here and tells the TUI.
 func (b *Bridge) removeMsgs(chat string, ids []string) {
@@ -81,7 +101,7 @@ func (b *Bridge) deleteForMe(chat string, ids []string) {
 	}
 	if err := b.cli.SendAppState(b.ctx, appstate.PatchInfo{Type: appstate.WAPatchRegularHigh, Mutations: muts}); err != nil {
 		logf("delete for me %s: %v", chat, err)
-		emit(map[string]any{"t": "error", "text": "não apagou nos outros aparelhos: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't delete on other devices: ", "não apagou nos outros aparelhos: ") + err.Error()})
 	}
 }
 
@@ -100,7 +120,7 @@ func (b *Bridge) revoke(chat string, ids []string) {
 		if _, err := b.cli.SendMessage(b.ctx, jid, b.cli.BuildRevoke(jid, types.EmptyJID, id)); err != nil {
 			// The TUI already shows it gone: it comes back as it was.
 			b.emitMsg(chat, id)
-			emit(map[string]any{"t": "error", "text": "não apagou para todos: " + err.Error()})
+			emit(map[string]any{"t": "error", "text": tr("couldn't delete for everyone: ", "não apagou para todos: ") + err.Error()})
 			continue
 		}
 		b.db.Exec(`UPDATE messages SET text = ? WHERE chat = ? AND id = ?`, revokedMine, chat, id)
@@ -131,7 +151,7 @@ func (b *Bridge) edit(chat, id, text string) {
 	if _, err := b.cli.SendMessage(b.ctx, jid, edit); err != nil {
 		b.db.Exec(`UPDATE messages SET text = ? WHERE chat = ? AND id = ?`, old, chat, id)
 		b.emitMsg(chat, id)
-		emit(map[string]any{"t": "error", "text": "não editou: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't edit: ", "não editou: ") + err.Error()})
 	}
 }
 

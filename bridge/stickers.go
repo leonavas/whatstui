@@ -156,7 +156,7 @@ func (b *Bridge) stickerFav(c Cmd) {
 	}
 	if err := b.cli.SendAppState(b.ctx, patch); err != nil {
 		logf("sticker %s %s %s: %v", c.Action, c.Chat, c.ID, err)
-		emit(map[string]any{"t": "error", "text": "não mudou as figurinhas favoritas: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't update favorite stickers: ", "não mudou as figurinhas favoritas: ") + err.Error()})
 		if on {
 			b.db.Exec(`DELETE FROM fav_stickers WHERE hash = ?`, key)
 		} else {

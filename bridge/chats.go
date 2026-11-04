@@ -393,21 +393,21 @@ func (b *Bridge) chatAction(c Cmd) {
 		} else {
 			b.db.Exec(`UPDATE chats SET archived = 0 WHERE jid = ?`, chat)
 		}
-		patch, what = appstate.BuildArchive(wa, on, ts, key), "não arquivou"
+		patch, what = appstate.BuildArchive(wa, on, ts, key), tr("couldn't archive", "não arquivou")
 	case "pin", "unpin":
 		on := c.Action == "pin"
 		if on {
 			var n int
 			b.db.QueryRow(`SELECT count(*) FROM chats WHERE pinned > 0 AND jid != ?`, chat).Scan(&n)
 			if n >= maxPinned {
-				emit(map[string]any{"t": "error", "text": "Você só pode fixar até 3 conversas"})
+				emit(map[string]any{"t": "error", "text": tr("You can only pin up to 3 chats", "Você só pode fixar até 3 conversas")})
 				return
 			}
 			b.db.Exec(`UPDATE chats SET pinned = ? WHERE jid = ?`, now.Unix(), chat)
 		} else {
 			b.db.Exec(`UPDATE chats SET pinned = 0 WHERE jid = ?`, chat)
 		}
-		patch, what = appstate.BuildPin(wa, on), "não fixou"
+		patch, what = appstate.BuildPin(wa, on), tr("couldn't pin", "não fixou")
 	case "read":
 		// Receipts and the patch, as opening it would.
 		b.markRead(chat, c.Quiet, true)
@@ -415,7 +415,7 @@ func (b *Bridge) chatAction(c Cmd) {
 		return
 	case "unread":
 		b.db.Exec(`UPDATE chats SET marked = 1, unread = max(unread, 1) WHERE jid = ?`, chat)
-		patch, what = appstate.BuildMarkChatAsRead(wa, false, ts, key), "não marcou como não lida"
+		patch, what = appstate.BuildMarkChatAsRead(wa, false, ts, key), tr("couldn't mark as unread", "não marcou como não lida")
 	case "mute", "unmute":
 		on := c.Action == "mute"
 		until, dur := int64(0), time.Duration(0)
@@ -427,7 +427,7 @@ func (b *Bridge) chatAction(c Cmd) {
 			}
 		}
 		b.db.Exec(`UPDATE chats SET mute_until = ? WHERE jid = ?`, until, chat)
-		patch, what = appstate.BuildMute(wa, on, dur), "não silenciou"
+		patch, what = appstate.BuildMute(wa, on, dur), tr("couldn't mute", "não silenciou")
 	case "favorite", "unfavorite":
 		if c.Action == "favorite" {
 			b.db.Exec(`UPDATE chats SET favorite = (SELECT coalesce(max(favorite), 0) + 1 FROM chats), fav_id = ? WHERE jid = ?`, b.favID(chat), chat)
@@ -453,15 +453,15 @@ func (b *Bridge) chatAction(c Cmd) {
 			}
 			rows.Close()
 		}
-		patch, what = buildFavorites(ids, int32(version), collection), "não mudou as favoritas"
+		patch, what = buildFavorites(ids, int32(version), collection), tr("couldn't update favorites", "não mudou as favoritas")
 	case "clear":
 		end := max(ts.Unix(), now.Unix())
 		b.forget(chat, end, false)
-		patch, what, undo = buildClearChat(wa, ts, key), "não limpou a conversa", nil
+		patch, what, undo = buildClearChat(wa, ts, key), tr("couldn't clear the chat", "não limpou a conversa"), nil
 	case "delete":
 		end := max(ts.Unix(), now.Unix())
 		b.forget(chat, end, true)
-		patch, what, undo = appstate.BuildDeleteChat(wa, ts, key, false), "não apagou a conversa", nil
+		patch, what, undo = appstate.BuildDeleteChat(wa, ts, key, false), tr("couldn't delete the chat", "não apagou a conversa"), nil
 	default:
 		return
 	}

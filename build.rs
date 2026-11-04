@@ -1,5 +1,5 @@
 //! Builds the WhatsApp bridge (bridge/, Go + whatsmeow) into
-//! `$OUT_DIR/whatsapp-tui-bridge`, for `bridge.rs` to carry inside whatsapp-tui.
+//! `$OUT_DIR/whatstui-bridge`, for `bridge.rs` to carry inside whatstui.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -7,7 +7,7 @@ use std::process::Command;
 fn main() {
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} not set"));
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR"));
-    let out = PathBuf::from(env("OUT_DIR")).join("whatsapp-tui-bridge");
+    let out = PathBuf::from(env("OUT_DIR")).join("whatstui-bridge");
     let release = env("PROFILE") == "release";
 
     let mut args: Vec<String> = vec!["build".into(), "-trimpath".into()];

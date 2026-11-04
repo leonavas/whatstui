@@ -32,7 +32,7 @@ func (b *Bridge) photo(chat string, jid types.JID) {
 	}
 	if err != nil || info == nil || info.URL == "" {
 		logf("photo %s: %v", chat, err)
-		out["error"] = "não carregou a foto"
+		out["error"] = tr("couldn't load the photo", "não carregou a foto")
 		return
 	}
 	dir := mediaDir()
@@ -46,7 +46,7 @@ func (b *Bridge) photo(chat string, jid types.JID) {
 	}
 	if err := download(info.URL, path); err != nil {
 		logf("photo %s: %v", chat, err)
-		out["error"] = "não carregou a foto"
+		out["error"] = tr("couldn't load the photo", "não carregou a foto")
 		return
 	}
 	// The ones it had before.

@@ -4,8 +4,6 @@ package main
 // in its context, as WhatsApp sends it, and shows it quoted here at once.
 
 import (
-	"strings"
-
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -32,7 +30,7 @@ func (b *Bridge) quoting(chat, id string) *quoting {
 	if err != nil {
 		return nil
 	}
-	text = strings.TrimSuffix(text, editedMark)
+	text = trimEdited(text)
 	// The participant names who wrote it as WhatsApp has them.
 	by := b.me().String()
 	for _, s := range []string{waSender, sender} {

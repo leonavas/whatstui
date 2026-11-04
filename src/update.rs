@@ -10,23 +10,20 @@ use crate::Ev;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::OnceLock;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const LATEST: &str = "https://api.github.com/repos/leonavas/whatsapp-tui/releases/latest";
-const REPO: &str = "https://github.com/leonavas/whatsapp-tui";
-const NAME: &str = "whatsapp-tui";
-/// Between checks while whatsapp-tui is open.
+const LATEST: &str = "https://api.github.com/repos/leonavas/whatstui/releases/latest";
+const REPO: &str = "https://github.com/leonavas/whatstui";
+const NAME: &str = "whatstui";
+/// Between checks while whatstui is open.
 const EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
 
-/// The app speaks Portuguese; `whatsapp-tui update` speaks English, as the
-/// rest of the CLI.
-static ENGLISH: AtomicBool = AtomicBool::new(false);
-
+/// In the interface's language (`i18n`); `whatstui update` speaks English,
+/// as the rest of the CLI.
 fn tr(en: &str, pt: &str) -> String {
-    if ENGLISH.load(Ordering::Relaxed) { en } else { pt }.to_string()
+    tr!(en, pt).to_string()
 }
 
 /// Download links by file name.
@@ -144,9 +141,9 @@ fn find_mode() -> Mode {
     Mode::Own
 }
 
-/// `WHATSAPP_TUI_UPDATE_DEV=1` checks even from `target/`, to see the button.
+/// `WHATSTUI_UPDATE_DEV=1` checks even from `target/`, to see the button.
 fn dev() -> bool {
-    std::env::var("WHATSAPP_TUI_UPDATE_DEV").is_ok_and(|v| v == "1")
+    std::env::var("WHATSTUI_UPDATE_DEV").is_ok_and(|v| v == "1")
 }
 
 /// None when a click can install; else how to update, short for the menu
@@ -157,15 +154,34 @@ fn manager() -> Option<(&'static str, String)> {
     let dir = exe.parent().map(|d| d.display().to_string()).unwrap_or_default();
     let msg = match mode() {
         Mode::Own => return None,
-        Mode::Off => ("Compile de novo", "build de desenvolvimento: não se atualiza, compile de novo".to_string()),
-        Mode::Managed if exe.starts_with(cargo_bin()) => {
-            ("Atualize via cargo", format!("instalado via cargo: rode cargo install --locked --git {REPO}"))
+        Mode::Off => (
+            tr!("Rebuild it", "Compile de novo"),
+            tr("development build: doesn't update itself, rebuild it", "build de desenvolvimento: não se atualiza, compile de novo"),
+        ),
+        Mode::Managed if exe.starts_with(cargo_bin()) => (
+            tr!("Update via cargo", "Atualize via cargo"),
+            tr!(
+                format!("installed via cargo: run cargo install --locked --git {REPO}"),
+                format!("instalado via cargo: rode cargo install --locked --git {REPO}")
+            ),
+        ),
+        Mode::Managed if s.starts_with("/nix/") => {
+            (tr!("Update through nix", "Atualize pelo nix"), tr("installed via nix: update through nix", "instalado via nix: atualize pelo nix"))
         }
-        Mode::Managed if s.starts_with("/nix/") => ("Atualize pelo nix", "instalado via nix: atualize pelo nix".into()),
-        Mode::Managed if s.starts_with("/usr/") || s.starts_with("/opt/") => {
-            ("Atualize pelo gerenciador", "instalado pelo sistema: atualize pelo gerenciador de pacotes".into())
-        }
-        Mode::Managed => ("Baixe do GitHub", format!("{dir} não é gravável: baixe a versão nova em {REPO}/releases")),
+        Mode::Managed if s.starts_with("/usr/") || s.starts_with("/opt/") => (
+            tr!("Update via package manager", "Atualize pelo gerenciador"),
+            tr(
+                "installed by the system: update through the package manager",
+                "instalado pelo sistema: atualize pelo gerenciador de pacotes",
+            ),
+        ),
+        Mode::Managed => (
+            tr!("Download from GitHub", "Baixe do GitHub"),
+            tr!(
+                format!("{dir} isn't writable: download the new version at {REPO}/releases"),
+                format!("{dir} não é gravável: baixe a versão nova em {REPO}/releases")
+            ),
+        ),
     };
     Some(msg)
 }
@@ -196,7 +212,7 @@ fn newer(a: &str, b: &str) -> bool {
 /// The latest release's version (without the "v") and its download links by file name.
 fn latest() -> Result<(String, Assets), String> {
     let res = ureq::get(LATEST)
-        .set("User-Agent", concat!("whatsapp-tui/", env!("CARGO_PKG_VERSION")))
+        .set("User-Agent", concat!("whatstui/", env!("CARGO_PKG_VERSION")))
         .set("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| e.to_string())?;
@@ -256,7 +272,7 @@ fn fetch(ver: &str, assets: &[(String, String)], log: &dyn Fn(&str), progress: &
     Ok(Package { name, tar })
 }
 
-/// Swaps `whatsapp-tui` for the package's; the desktop entry and icons too,
+/// Swaps `whatstui` for the package's; the desktop entry and icons too,
 /// where install.sh put them.
 fn put(pkg: &Package) -> Result<(), String> {
     let exe = exe().ok_or(tr("couldn't find the executable", "não achou o executável"))?;
@@ -338,7 +354,7 @@ pub fn current() -> &'static str {
     VERSION
 }
 
-/// A development build checks only with `WHATSAPP_TUI_UPDATE_DEV=1`.
+/// A development build checks only with `WHATSTUI_UPDATE_DEV=1`.
 pub fn check_disabled() -> bool {
     matches!(mode(), Mode::Off) && !dev()
 }
@@ -367,15 +383,15 @@ pub fn install_now(ver: String, pkg: Package) -> Note {
     Note::Installed(put(&pkg).map(|()| ver))
 }
 
-/// `whatsapp-tui update`: checks now and installs, telling what it does.
+/// `whatstui update`: checks now and installs, telling what it does.
 pub fn cli() -> i32 {
-    ENGLISH.store(true, Ordering::Relaxed);
+    crate::i18n::set_pt(false);
     let path = exe().map(|p| p.display().to_string()).unwrap_or_default();
     if matches!(mode(), Mode::Off) {
         eprintln!("{path}: development build, doesn't update itself");
         return 1;
     }
-    eprintln!("whatsapp-tui {VERSION} · looking for a new version…");
+    eprintln!("whatstui {VERSION} · looking for a new version…");
     let (ver, assets) = match latest() {
         Ok(l) => l,
         Err(e) => {
@@ -388,12 +404,12 @@ pub fn cli() -> i32 {
         return 0;
     }
     if matches!(mode(), Mode::Managed) {
-        eprintln!("whatsapp-tui {ver} available; {path} belongs to another tool (or the folder isn't writable): update through it");
+        eprintln!("whatstui {ver} available; {path} belongs to another tool (or the folder isn't writable): update through it");
         return 1;
     }
     match fetch(&ver, &assets, &|s| eprintln!("{s}"), &|_| {}).and_then(|pkg| put(&pkg)) {
         Ok(()) => {
-            eprintln!("updated to {ver}; a running whatsapp-tui picks it up when restarted");
+            eprintln!("updated to {ver}; a running whatstui picks it up when restarted");
             0
         }
         Err(e) => {
@@ -406,7 +422,7 @@ pub fn cli() -> i32 {
 /// Runs the new binary in this process's place, in the same terminal, with
 /// the same arguments. Returns only when that fails.
 pub fn restart() -> std::io::Error {
-    let Some(exe) = exe() else { return std::io::Error::other("não achou o executável") };
+    let Some(exe) = exe() else { return std::io::Error::other(tr("couldn't find the executable", "não achou o executável")) };
     let mut cmd = std::process::Command::new(exe);
     cmd.args(std::env::args_os().skip(1));
     std::os::unix::process::CommandExt::exec(&mut cmd)

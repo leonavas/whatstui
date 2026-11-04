@@ -48,7 +48,21 @@ const REVOKE_SECS: i64 = 60 * 3600;
 /// What the bridge writes for a deleted or edited message.
 const REVOKED: &str = "🚫 ";
 const REVOKED_MINE: &str = "🚫 Você apagou esta mensagem";
+const REVOKED_MINE_EN: &str = "🚫 You deleted this message";
+/// The edited mark, as the bridge writes it in Portuguese; `EDITED_EN` in
+/// English. Messages kept from either language carry either one.
 pub(crate) const EDITED: &str = " (editada)";
+pub(crate) const EDITED_EN: &str = " (edited)";
+
+/// The text without its edited mark, in either language.
+pub(crate) fn unedited(t: &str) -> &str {
+    t.strip_suffix(EDITED).or_else(|| t.strip_suffix(EDITED_EN)).unwrap_or(t)
+}
+
+/// The edited mark in the language in use.
+pub(crate) fn edited_mark() -> &'static str {
+    tr!(EDITED_EN, EDITED)
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Act {
@@ -146,8 +160,12 @@ fn revoked(m: &Msg) -> bool {
 }
 
 /// What the bridge writes for a message whose content it didn't keep (a
-/// contact, a place, a poll, media from before the keys were kept).
-const LABELS: [&str; 8] = ["📷 Foto", "🎥 Vídeo", "🎤 Áudio", "📄 ", "💟 Figurinha", "👤 ", "📍 Localização", "📊 "];
+/// contact, a place, a poll, media from before the keys were kept), in
+/// either language.
+const LABELS: [&str; 14] = [
+    "📷 Foto", "🎥 Vídeo", "🎤 Áudio", "📄 ", "💟 Figurinha", "👤 ", "📍 Localização", "📊 ",
+    "📷 Photo", "🎥 Video", "🎤 Audio", "💟 Sticker", "📍 Location", "📍 Live location",
+];
 
 /// Whether it can be forwarded: not deleted nor a business's card, its
 /// media with keys (ours once uploaded), its content kept.
@@ -163,7 +181,7 @@ pub(crate) fn forwardable(m: &Msg) -> bool {
 
 /// The text a copy takes: a photo's or a file's caption, not its label.
 pub(crate) fn plain(m: &Msg) -> String {
-    let t = m.text.strip_suffix(EDITED).unwrap_or(&m.text);
+    let t = unedited(&m.text);
     match &m.media {
         Some(_) => t.split_once(" · ").map(|(_, c)| c.to_string()).unwrap_or_default(),
         None if revoked(m) => String::new(),
@@ -173,23 +191,23 @@ pub(crate) fn plain(m: &Msg) -> String {
 
 fn label(a: Act) -> (&'static str, &'static str) {
     match a {
-        Act::Reply => (REPLY, "Responder"),
-        Act::Copy => (COPY, "Copiar"),
-        Act::Edit => (EDIT, "Editar"),
-        Act::React => (SMILEY, "Reagir"),
-        Act::Forward => (crate::forward::ICON, "Encaminhar"),
-        Act::Maps => (MAP_PIN, "Abrir no Maps"),
-        Act::Info => (INFO, "Dados da mensagem"),
-        Act::Delete => (TRASH, "Apagar"),
+        Act::Reply => (REPLY, tr!("Reply", "Responder")),
+        Act::Copy => (COPY, tr!("Copy", "Copiar")),
+        Act::Edit => (EDIT, tr!("Edit", "Editar")),
+        Act::React => (SMILEY, tr!("React", "Reagir")),
+        Act::Forward => (crate::forward::ICON, tr!("Forward", "Encaminhar")),
+        Act::Maps => (MAP_PIN, tr!("Open in Maps", "Abrir no Maps")),
+        Act::Info => (INFO, tr!("Message info", "Dados da mensagem")),
+        Act::Delete => (TRASH, tr!("Delete", "Apagar")),
         Act::Sep => ("", ""),
     }
 }
 
 fn choice_label(c: Choice) -> &'static str {
     match c {
-        Choice::Cancel => "Cancelar",
-        Choice::Me => "Apagar para mim",
-        Choice::Everyone => "Apagar para todos",
+        Choice::Cancel => tr!("Cancel", "Cancelar"),
+        Choice::Me => tr!("Delete for me", "Apagar para mim"),
+        Choice::Everyone => tr!("Delete for everyone", "Apagar para todos"),
     }
 }
 
@@ -294,7 +312,7 @@ impl App {
             Act::Copy => {
                 let text = self.find_msg(&p.chat, &p.id).map(plain).unwrap_or_default();
                 copy(&text);
-                self.note("Mensagem copiada");
+                self.note(tr!("Message copied", "Mensagem copiada"));
             }
             Act::Edit => self.start_edit(&p.chat, &p.id),
             Act::Maps => {
@@ -379,7 +397,7 @@ impl App {
     fn start_edit(&mut self, chat: &str, id: &str) {
         let Some(m) = self.find_msg(chat, id).cloned() else { return };
         if !self.editable(chat, &m) {
-            return self.note("Essa mensagem não pode mais ser editada");
+            return self.note(tr!("This message can no longer be edited", "Essa mensagem não pode mais ser editada"));
         }
         self.cancel_edit();
         let text = plain(&m);
@@ -406,15 +424,15 @@ impl App {
             return self.cancel_edit();
         }
         if self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let ok = self.find_msg(&chat, &id).cloned().is_some_and(|m| self.editable(&chat, &m));
         if !ok {
             self.cancel_edit();
-            return self.note("Essa mensagem não pode mais ser editada");
+            return self.note(tr!("This message can no longer be edited", "Essa mensagem não pode mais ser editada"));
         }
         if let Some(m) = self.msgs.get_mut(&chat).and_then(|l| l.iter_mut().find(|m| m.id == id)) {
-            m.text = format!("{text}{EDITED}");
+            m.text = format!("{text}{}", edited_mark());
         }
         self.cmd(json!({"c": "edit", "chat": chat, "id": id, "text": text}));
         self.cancel_edit();
@@ -468,7 +486,7 @@ impl App {
             Choice::Everyone => true,
         };
         if everyone && self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let Some(s) = self.msg_menu.select.take() else { return };
         if self.msg_menu.editing.as_ref().is_some_and(|e| s.ids.contains(&e.id)) {
@@ -477,7 +495,7 @@ impl App {
         if let Some(list) = self.msgs.get_mut(&s.chat) {
             if everyone {
                 for m in list.iter_mut().filter(|m| s.ids.contains(&m.id)) {
-                    m.text = REVOKED_MINE.into();
+                    m.text = tr!(REVOKED_MINE_EN, REVOKED_MINE).into();
                     m.media = None;
                     m.card = None;
                     m.reactions.clear();
@@ -751,10 +769,10 @@ pub fn draw_select_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let forward = app.msg_menu.select.as_ref().is_some_and(|s| s.forward);
     let bg = Style::new().bg(DAY_PILL);
     let count = match n {
-        1 => "1 selecionada".to_string(),
-        0 if forward => "Selecionar mensagens".to_string(),
-        _ if forward => format!("{n} itens selecionados"),
-        _ => format!("{n} selecionadas"),
+        1 => tr!("1 selected", "1 selecionada").to_string(),
+        0 if forward => tr!("Select messages", "Selecionar mensagens").to_string(),
+        _ if forward => tr!(format!("{n} items selected"), format!("{n} itens selecionados")),
+        _ => tr!(format!("{n} selected"), format!("{n} selecionadas")),
     };
     let trash = if n > 0 { bg.fg(TEXT) } else { bg.fg(META_IN) };
     let w = area.width as usize;
@@ -782,7 +800,7 @@ pub fn draw_select_bar(f: &mut Frame, app: &mut App, area: Rect) {
 pub fn draw_edit_strip(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(e) = app.msg_menu.editing.as_ref() else { return };
     let w = area.width as usize;
-    let title = format!("   {EDIT}  Editar mensagem");
+    let title = tr!(format!("   {EDIT}  Edit message"), format!("   {EDIT}  Editar mensagem"));
     let first = e.original.lines().next().unwrap_or("").to_string();
     let lines = vec![
         Line::from(vec![
@@ -804,8 +822,8 @@ fn reply_view(app: &App, width: usize) -> Option<(String, Color, Vec<String>)> {
         return None;
     }
     let m = app.reply_msg()?;
-    let who = if m.from_me { "Você".to_string() } else { display_name(&m.sender_name, &m.sender) };
-    let text = m.text.strip_suffix(EDITED).unwrap_or(&m.text);
+    let who = if m.from_me { tr!("You", "Você").to_string() } else { display_name(&m.sender_name, &m.sender) };
+    let text = unedited(&m.text);
     let (text, _) = crate::markup::mentions(text, &m.mentions);
     let mut lines = wrap(&text, width.max(1));
     if lines.len() > 2 {
@@ -928,7 +946,10 @@ fn draw_dialog(f: &mut Frame, app: &mut App) {
     let Some(cur) = app.msg_menu.confirm else { return };
     let n = app.msg_menu.select.as_ref().map_or(0, |s| s.ids.len());
     let choices = app.choices();
-    let title = if n == 1 { "Deseja apagar a mensagem?".to_string() } else { format!("Deseja apagar {n} mensagens?") };
+    let title = match n {
+        1 => tr!("Delete message?", "Deseja apagar a mensagem?").to_string(),
+        _ => tr!(format!("Delete {n} messages?"), format!("Deseja apagar {n} mensagens?")),
+    };
     let btn_w = |c: Choice| choice_label(c).width() + 4;
     let row_w: usize = choices.iter().map(|c| btn_w(*c) + 2).sum::<usize>();
     let area = app.msgs_area;

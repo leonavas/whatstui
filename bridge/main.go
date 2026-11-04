@@ -1,8 +1,8 @@
-// whatsapp-tui-bridge: the WhatsApp side of whatsapp-tui. It speaks WhatsApp's multi-device
+// whatstui-bridge: the WhatsApp side of whatstui. It speaks WhatsApp's multi-device
 // protocol through whatsmeow and talks to the TUI over JSON lines: events on
 // stdout, commands on stdin. Logs go to stderr.
 //
-// Usage: whatsapp-tui-bridge <data dir>
+// Usage: whatstui-bridge <data dir>
 package main
 
 import (
@@ -183,11 +183,11 @@ type avatarReq struct {
 }
 
 // What the TUI says where nothing can be sent.
-const (
-	officialOnly = "Somente o WhatsApp pode enviar mensagens"
-	adminsOnly   = "Somente admins podem enviar mensagens"
-	notMember    = "Você não pode enviar mensagens para este grupo porque não é mais participante"
-	cantSend     = "Não é possível enviar mensagens para esta conversa"
+var (
+	officialOnly = tr("Only WhatsApp can send messages", "Somente o WhatsApp pode enviar mensagens")
+	adminsOnly   = tr("Only admins can send messages", "Somente admins podem enviar mensagens")
+	notMember    = tr("You can't send messages to this group because you're no longer a participant", "Você não pode enviar mensagens para este grupo porque não é mais participante")
+	cantSend     = tr("You can't send messages to this chat", "Não é possível enviar mensagens para esta conversa")
 )
 
 const schema = `
@@ -305,7 +305,7 @@ func main() {
 	// Before starting goroutines: SQLite and its sidecars must be private too.
 	syscall.Umask(0o077)
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: whatsapp-tui-bridge <data dir>")
+		fmt.Fprintln(os.Stderr, "usage: whatstui-bridge <data dir>")
 		os.Exit(2)
 	}
 	dir := os.Args[1]
@@ -316,7 +316,7 @@ func main() {
 
 	// How the phone lists it under Linked devices: the name, and a computer
 	// icon (unknown platforms get a generic one). Read only when pairing.
-	store.SetOSInfo("WhatsApp TUI", [3]uint32{0, 1, 0})
+	store.SetOSInfo("WhatsTUI", [3]uint32{0, 1, 0})
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	container, err := sqlstore.New(ctx, "sqlite3", "file:"+filepath.Join(dir, "session.db")+"?_foreign_keys=on&_busy_timeout=5000", newLog("db", "WARN"))
 	if err != nil {
@@ -326,7 +326,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	db, err := sql.Open("sqlite3", "file:"+filepath.Join(dir, "whatsapp-tui.db")+"?_busy_timeout=5000&_journal_mode=WAL")
+	db, err := sql.Open("sqlite3", "file:"+filepath.Join(dir, "whatstui.db")+"?_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		fatal(err)
 	}
@@ -484,7 +484,7 @@ func (b *Bridge) commands() {
 		case "logout":
 			// Unlinks this device on the phone too; offline, nothing changes.
 			if err := b.cli.Logout(b.ctx); err != nil {
-				emit(map[string]any{"t": "error", "text": "não desconectou: " + err.Error()})
+				emit(map[string]any{"t": "error", "text": tr("couldn't log out: ", "não desconectou: ") + err.Error()})
 				continue
 			}
 			b.wipe()
@@ -630,7 +630,7 @@ func (b *Bridge) contactName(j types.JID) string {
 
 func (b *Bridge) senderName(j types.JID, push string) string {
 	if j.User == b.me().User {
-		return "Você"
+		return tr("You", "Você")
 	}
 	if n := b.contactName(j); n != "" {
 		return n
@@ -854,23 +854,23 @@ func textOf(m *waE2E.Message) (string, bool) {
 	case m.GetExtendedTextMessage() != nil:
 		return m.GetExtendedTextMessage().GetText(), true
 	case m.GetImageMessage() != nil:
-		return withCaption("📷 Foto", m.GetImageMessage().GetCaption()), true
+		return withCaption(tr("📷 Photo", "📷 Foto"), m.GetImageMessage().GetCaption()), true
 	case m.GetVideoMessage() != nil:
-		return withCaption("🎥 Vídeo", m.GetVideoMessage().GetCaption()), true
+		return withCaption(tr("🎥 Video", "🎥 Vídeo"), m.GetVideoMessage().GetCaption()), true
 	case m.GetAudioMessage() != nil:
 		s := m.GetAudioMessage().GetSeconds()
-		return fmt.Sprintf("🎤 Áudio %d:%02d", s/60, s%60), true
+		return fmt.Sprintf(tr("🎤 Audio %d:%02d", "🎤 Áudio %d:%02d"), s/60, s%60), true
 	case m.GetDocumentMessage() != nil:
 		d := m.GetDocumentMessage()
 		return withCaption("📄 "+d.GetFileName(), d.GetCaption()), true
 	case m.GetStickerMessage() != nil:
-		return "💟 Figurinha", true
+		return tr("💟 Sticker", "💟 Figurinha"), true
 	case m.GetContactMessage() != nil:
 		return "👤 " + m.GetContactMessage().GetDisplayName(), true
 	case m.GetLocationMessage() != nil:
-		return "📍 Localização", true
+		return tr("📍 Location", "📍 Localização"), true
 	case m.GetLiveLocationMessage() != nil:
-		return "📍 Localização em tempo real", true
+		return tr("📍 Live location", "📍 Localização em tempo real"), true
 	case m.GetPollCreationMessage() != nil:
 		return "📊 " + m.GetPollCreationMessage().GetName(), true
 	case m.GetPollCreationMessageV3() != nil:
@@ -1222,14 +1222,14 @@ func (b *Bridge) chats() []Chat {
 		c.Favorite = fav > 0
 		if !c.Group {
 			if jid.User == b.me().User {
-				c.Name = "Você (mensagens para si)"
+				c.Name = tr("You (message yourself)", "Você (mensagens para si)")
 			} else if n := b.contactName(jid); n != "" {
 				c.Name = n
 			} else if c.Name == "" {
 				c.Name = b.senderName(jid, "")
 			}
 		} else if c.Name == "" {
-			c.Name = "Grupo"
+			c.Name = tr("Group", "Grupo")
 		}
 		c.Preview = withMentions(c.Preview, b.mentions(c.Preview, seen))
 		// A call reads as WhatsApp Web lists it: no ticks, nobody's name before it.
@@ -1368,7 +1368,7 @@ func (b *Bridge) send(chat, text, reply string) {
 	}
 	id := b.cli.GenerateMessageID()
 	me := b.me()
-	m := &Msg{Chat: chat, ID: id, Sender: me.String(), SenderName: "Você", FromMe: true, TS: time.Now().Unix(), Text: text}
+	m := &Msg{Chat: chat, ID: id, Sender: me.String(), SenderName: tr("You", "Você"), FromMe: true, TS: time.Now().Unix(), Text: text}
 	out := &waE2E.Message{Conversation: proto.String(text)}
 	q := b.quoting(chat, reply)
 	mentioned, all := b.mentionedJIDs(jid, text)
@@ -1393,7 +1393,7 @@ func (b *Bridge) send(chat, text, reply string) {
 
 	_, err = b.cli.SendMessage(b.ctx, jid, out, whatsmeow.SendRequestExtra{ID: id})
 	if err != nil {
-		emit(map[string]any{"t": "error", "text": "não enviou: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't send: ", "não enviou: ") + err.Error()})
 		return
 	}
 	b.setStatus(jid, []types.MessageID{id}, 1)
@@ -1557,7 +1557,7 @@ func (b *Bridge) profile(chat string) {
 	defer b.photo(chat, jid)
 	if jid == types.PSAJID {
 		p["name"] = "WhatsApp"
-		p["about"] = "Conta oficial do WhatsApp"
+		p["about"] = tr("Official WhatsApp account", "Conta oficial do WhatsApp")
 		emit(p)
 		return
 	}

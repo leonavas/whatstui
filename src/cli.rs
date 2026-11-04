@@ -1,11 +1,11 @@
 //! The commands for scripts and the Omarchy widget: they talk to the
-//! running whatsapp-tui (`ipc`), or do without it where they can.
+//! running whatstui (`ipc`), or do without it where they can.
 
 use crate::ipc::{self, Cmd};
 use serde_json::{json, Value};
 use std::io::IsTerminal;
 
-/// `println!` that doesn't panic when the reader went away (`whatsapp-tui status | head`).
+/// `println!` that doesn't panic when the reader went away (`whatstui status | head`).
 macro_rules! out {
     ($($t:tt)*) => {{
         use std::io::Write;
@@ -15,27 +15,27 @@ macro_rules! out {
 
 pub enum Next {
     Exit(i32),
-    /// Nothing running and a terminal here: open whatsapp-tui, then do this.
+    /// Nothing running and a terminal here: open whatstui, then do this.
     Start(Option<Cmd>),
 }
 
 pub fn usage() -> &'static str {
     "\
 usage:
-  whatsapp-tui                  open whatsapp-tui, or bring the open one to the front
-  whatsapp-tui --new-instance   open another one alongside the running one
-  whatsapp-tui --version        show the version
-  whatsapp-tui update           install the latest release over this one
+  whatstui                  open whatstui, or bring the open one to the front
+  whatstui --new-instance   open another one alongside the running one
+  whatstui --version        show the version
+  whatstui update           install the latest release over this one
 
-talking to the running whatsapp-tui (see docs/events.md):
-  whatsapp-tui open <chat> [message-id] [--background]
-  whatsapp-tui focus
-  whatsapp-tui mark-read <chat>
-  whatsapp-tui pause <minutes | 30m | 1h | 8h | tomorrow>
-  whatsapp-tui resume
-  whatsapp-tui quit
-  whatsapp-tui status [--json]  what is unread, as JSON for scripts
-  whatsapp-tui events           follow new messages, counts and pauses (JSON lines)
+talking to the running whatstui (see docs/events.md):
+  whatstui open <chat> [message-id] [--background]
+  whatstui focus
+  whatstui mark-read <chat>
+  whatstui pause <minutes | 30m | 1h | 8h | tomorrow>
+  whatstui resume
+  whatstui quit
+  whatstui status [--json]  what is unread, as JSON for scripts
+  whatstui events           follow new messages, counts and pauses (JSON lines)
 "
 }
 
@@ -71,7 +71,7 @@ fn send(cmd: Value) -> i32 {
     match ipc::send(&cmd) {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("whatsapp-tui: didn't reach the running whatsapp-tui: {e}");
+            eprintln!("whatstui: didn't reach the running whatstui: {e}");
             1
         }
     }
@@ -81,12 +81,12 @@ fn send_running(cmd: Value) -> i32 {
     if ipc::running() {
         send(cmd)
     } else {
-        eprintln!("whatsapp-tui isn't running");
+        eprintln!("whatstui isn't running");
         1
     }
 }
 
-/// `whatsapp-tui open <chat> [message-id] [--background]`.
+/// `whatstui open <chat> [message-id] [--background]`.
 fn open(args: &[String]) -> Next {
     let focus = !args.iter().any(|a| a == "--background");
     let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
@@ -103,7 +103,7 @@ fn open(args: &[String]) -> Next {
     Next::Exit(launch(&again))
 }
 
-/// `whatsapp-tui focus`: the running one to the front, or a new one.
+/// `whatstui focus`: the running one to the front, or a new one.
 fn focus() -> Next {
     if ipc::running() {
         return Next::Exit(send(json!({ "cmd": "focus" })));
@@ -114,9 +114,9 @@ fn focus() -> Next {
     Next::Exit(launch(&[]))
 }
 
-/// Opens whatsapp-tui in a new terminal window, with these arguments.
+/// Opens whatstui in a new terminal window, with these arguments.
 fn launch(args: &[String]) -> i32 {
-    let exe = std::env::current_exe().unwrap_or_else(|_| "whatsapp-tui".into());
+    let exe = std::env::current_exe().unwrap_or_else(|_| "whatstui".into());
     let spawned = std::process::Command::new("xdg-terminal-exec")
         .arg(format!("--app-id={}", crate::tray::window_class()))
         .arg("-e")
@@ -129,7 +129,7 @@ fn launch(args: &[String]) -> i32 {
     match spawned {
         Ok(_) => 0,
         Err(e) => {
-            eprintln!("whatsapp-tui isn't running, and didn't open a terminal for it: {e}");
+            eprintln!("whatstui isn't running, and didn't open a terminal for it: {e}");
             1
         }
     }
@@ -160,7 +160,7 @@ fn until(s: &str) -> Option<i64> {
     (num.is_empty() && secs > 0).then(|| now.timestamp() + secs)
 }
 
-/// With whatsapp-tui running it takes the pause; closed, the file is all there is.
+/// With whatstui running it takes the pause; closed, the file is all there is.
 fn pause(until: Option<i64>) -> i32 {
     let code = if ipc::running() {
         send(match until {
@@ -171,7 +171,7 @@ fn pause(until: Option<i64>) -> i32 {
         match crate::events::save_pause(until) {
             Ok(()) => 0,
             Err(e) => {
-                eprintln!("whatsapp-tui: didn't save the pause: {e}");
+                eprintln!("whatstui: didn't save the pause: {e}");
                 1
             }
         }
@@ -193,7 +193,7 @@ fn describe(until: Option<i64>) -> String {
     }
 }
 
-/// What the running whatsapp-tui last wrote; `{"running": false}` when none is.
+/// What the running whatstui last wrote; `{"running": false}` when none is.
 fn snapshot() -> Value {
     let stopped = json!({ "v": 1, "running": false, "paused": { "paused": crate::events::load_pause().is_some(), "until": crate::events::load_pause() } });
     if !ipc::running() {
@@ -202,7 +202,7 @@ fn snapshot() -> Value {
     std::fs::read_to_string(crate::events::state_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(stopped)
 }
 
-/// `whatsapp-tui status [--json]`: the unread chats, as the widget sees them.
+/// `whatstui status [--json]`: the unread chats, as the widget sees them.
 fn status(as_json: bool) -> i32 {
     let s = snapshot();
     if as_json {
@@ -213,10 +213,10 @@ fn status(as_json: bool) -> i32 {
         out!("{}", describe(s["paused"]["until"].as_i64()));
     }
     if s["running"] != true {
-        out!("whatsapp-tui isn't running");
+        out!("whatstui isn't running");
         return 0;
     }
-    let mut head = format!("whatsapp-tui · {}", s["user"].as_str().unwrap_or(""));
+    let mut head = format!("whatstui · {}", s["user"].as_str().unwrap_or(""));
     head += &match s["totals"]["chats"].as_u64().unwrap_or(0) {
         0 => " · nothing unread".to_string(),
         1 => " · 1 unread chat".to_string(),

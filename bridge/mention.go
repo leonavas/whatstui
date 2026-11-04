@@ -90,7 +90,7 @@ func (b *Bridge) mention(user string, seen map[string]*Mention) *Mention {
 		// Your name, as WhatsApp Web shows it; "Você" only without one.
 		name := b.cli.Store.PushName
 		if name == "" {
-			name = "Você"
+			name = tr("You", "Você")
 		}
 		m = &Mention{User: user, JID: me.String(), Name: name, Me: true}
 		return m

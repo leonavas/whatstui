@@ -104,7 +104,9 @@ pub fn audio_of(m: &Msg) -> Option<Audio> {
         // click asks the phone for the rest. Its text can't tell a voice note
         // from a file: the headphone until it's known.
         None => {
-            let (mm, ss) = m.text.strip_prefix("🎤 Áudio ")?.split_once(':')?;
+            // The helper words it in the language it ran in: either one.
+            let rest = m.text.strip_prefix("🎤 Áudio ").or_else(|| m.text.strip_prefix("🎤 Audio "))?;
+            let (mm, ss) = rest.split_once(':')?;
             Some(Audio { secs: mm.parse::<u32>().ok()? * 60 + ss.parse::<u32>().ok()?, ptt: false, playable: !m.unavailable })
         }
     }
@@ -509,7 +511,7 @@ impl App {
             }
             v.extend(chats);
             if self.archived && v.len() == 1 {
-                v.push(Item::Info("Nenhuma conversa arquivada".into()));
+                v.push(Item::Info(tr!("No archived chats", "Nenhuma conversa arquivada").into()));
             }
             return v;
         }
@@ -519,24 +521,24 @@ impl App {
         }
         let chats: Vec<Item> = chats.collect();
         if !chats.is_empty() {
-            v.push(Item::Header("Conversas".into()));
+            v.push(Item::Header(tr!("Chats", "Conversas").into()));
             v.extend(chats);
         }
         match found {
             Some(f) => {
                 if !f.contacts.is_empty() {
-                    v.push(Item::Header("Contatos".into()));
+                    v.push(Item::Header(tr!("Contacts", "Contatos").into()));
                     v.extend(f.contacts.iter().cloned().map(Item::Contact));
                 }
                 if !f.messages.is_empty() {
-                    v.push(Item::Header("Mensagens".into()));
+                    v.push(Item::Header(tr!("Messages", "Mensagens").into()));
                     v.extend(f.messages.iter().cloned().map(Item::Message));
                 }
                 if v.iter().all(|i| matches!(i, Item::Back)) {
-                    v.push(Item::Info("Nenhuma conversa, contato ou mensagem encontrada".into()));
+                    v.push(Item::Info(tr!("No chats, contacts or messages found", "Nenhuma conversa, contato ou mensagem encontrada").into()));
                 }
             }
-            None => v.push(Item::Info("Pesquisando…".into())),
+            None => v.push(Item::Info(tr!("Searching…", "Pesquisando…").into())),
         }
         v
     }
@@ -587,7 +589,7 @@ impl App {
                 self.names.insert(c.jid.clone(), c.name);
                 self.open_chat(c.jid);
             }
-            Item::Number(n) if !n.exists => return self.note("Esse número não está no WhatsApp."),
+            Item::Number(n) if !n.exists => return self.note(tr!("This number isn't on WhatsApp.", "Esse número não está no WhatsApp.")),
             Item::Number(n) => {
                 self.names.entry(n.jid.clone()).or_insert_with(|| format!("+{}", n.phone));
                 self.open_chat(n.jid);
@@ -800,7 +802,7 @@ impl App {
                     self.start();
                 } else if !matches!(self.phase, Phase::Dead(_)) {
                     let log = crate::bridge::data_dir().join("bridge.log");
-                    self.phase = Phase::Dead(format!("O bridge parou. Log em {}", log.display()));
+                    self.phase = Phase::Dead(tr!(format!("The bridge stopped. Log at {}", log.display()), format!("O bridge parou. Log em {}", log.display())));
                 }
             }
             Event::Sync { progress } => {
@@ -972,7 +974,7 @@ impl App {
                 let group = m.chat.ends_with("@g.us");
                 self.chats.push(Chat {
                     jid: m.chat.clone(),
-                    name: if group { "Grupo".into() } else { m.sender_name.clone() },
+                    name: if group { tr!("Group", "Grupo").into() } else { m.sender_name.clone() },
                     group,
                     last_ts: m.ts,
                     unread: u32::from(new && !seen),
@@ -1456,7 +1458,7 @@ impl App {
             return;
         }
         if self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let reply = self.take_reply(&chat);
         let text = self.mention_text(&chat, text);

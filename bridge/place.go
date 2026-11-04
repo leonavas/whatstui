@@ -46,7 +46,7 @@ func placeOf(m *waE2E.Message) (*Place, []byte) {
 // came with, if it's a web page.
 func (p *Place) mapsURL() string {
 	if p.Lat != 0 || p.Lon != 0 {
-		return fmt.Sprintf("https://maps.google.com/maps?q=%f,%f&z=17&hl=pt-BR", p.Lat, p.Lon)
+		return fmt.Sprintf("https://maps.google.com/maps?q=%f,%f&z=17&hl=%s", p.Lat, p.Lon, tr("en", "pt-BR"))
 	}
 	if (strings.HasPrefix(p.URL, "https://") || strings.HasPrefix(p.URL, "http://")) && strings.IndexFunc(p.URL, unicode.IsControl) == -1 {
 		return p.URL

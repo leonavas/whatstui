@@ -291,7 +291,7 @@ impl App {
             return;
         }
         crate::msgmenu::copy(&text);
-        self.note("Copiado");
+        self.note(tr!("Copied", "Copiado"));
     }
 
     /// Ctrl+C with text selected: copied again, as written.
@@ -325,11 +325,14 @@ impl App {
             (text, picked.len())
         };
         if n == 0 {
-            return self.note("Nenhum texto para copiar");
+            return self.note(tr!("No text to copy", "Nenhum texto para copiar"));
         }
         crate::msgmenu::copy(&text);
         self.msg_menu.end_select();
-        self.note(if n == 1 { "Mensagem copiada".to_string() } else { format!("{n} mensagens copiadas") });
+        self.note(match n {
+            1 => tr!("Message copied", "Mensagem copiada").to_string(),
+            _ => tr!(format!("{n} messages copied"), format!("{n} mensagens copiadas")),
+        });
     }
 
     /// What's selected, as written. In one message, just that; over

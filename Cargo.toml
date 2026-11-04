@@ -1,5 +1,5 @@
 [package]
-name = "whatsapp-tui"
+name = "whatstui"
 version = "0.3.2"
 edition = "2021"
 description = "A lightweight WhatsApp client for the terminal"

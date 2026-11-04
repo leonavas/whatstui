@@ -19,7 +19,9 @@ use unicode_width::UnicodeWidthStr;
 const FULL: u32 = 640;
 
 /// The top bar's keys.
-const HINTS: [(&str, &str); 2] = [("o", "abrir fora"), ("Esc", "fecha")];
+fn hints() -> [(&'static str, &'static str); 2] {
+    [("o", tr!("open outside", "abrir fora")), ("Esc", tr!("close", "fecha"))]
+}
 
 /// Where things were on the last draw, for the mouse.
 #[derive(Default)]
@@ -35,9 +37,9 @@ impl App {
     pub(crate) fn open_photo(&mut self) {
         let Some(p) = self.profile.as_ref() else { return };
         match p.pic.clone() {
-            Some(path) if path.is_empty() => self.note("Sem foto do perfil"),
+            Some(path) if path.is_empty() => self.note(tr!("No profile photo", "Sem foto do perfil")),
             Some(path) if self.picker.is_none() => crate::links::open(&path),
-            None if self.picker.is_none() => self.note("Carregando a foto…"),
+            None if self.picker.is_none() => self.note(tr!("Loading the photo…", "Carregando a foto…")),
             _ => {
                 if let Some(p) = self.profile.as_mut() {
                     p.big = Some(View::default());
@@ -66,7 +68,7 @@ impl App {
             return;
         }
         self.close_photo();
-        self.note(if error.is_empty() { "Sem foto do perfil" } else { error });
+        self.note(if error.is_empty() { tr!("No profile photo", "Sem foto do perfil") } else { error });
     }
 
     /// `o`: outside the app instead.
@@ -75,7 +77,7 @@ impl App {
         self.close_photo();
         match path {
             Some(p) => crate::links::open(&p),
-            None => self.note("Carregando a foto…"),
+            None => self.note(tr!("Loading the photo…", "Carregando a foto…")),
         }
     }
 
@@ -135,9 +137,10 @@ pub fn draw(f: &mut Frame, app: &mut App) -> bool {
     // The top bar: whose on the left, the keys on the right.
     let bar = Rect { height: 2.min(area.height), ..area };
     let hint_w = |(k, l): (&str, &str)| (k.width() + 3 + l.width()) as u16;
-    let mut x = area.right().saturating_sub(2 + HINTS.iter().map(|&h| hint_w(h) + 3).sum::<u16>() - 3);
+    let hints = hints();
+    let mut x = area.right().saturating_sub(2 + hints.iter().map(|&h| hint_w(h) + 3).sum::<u16>() - 3);
     let mut btns = [Rect::default(); 2];
-    for (n, &(k, l)) in HINTS.iter().enumerate() {
+    for (n, &(k, l)) in hints.iter().enumerate() {
         let w = hint_w((k, l));
         let r = Rect::new(x, bar.y, w, 1).intersection(area);
         let spans = vec![

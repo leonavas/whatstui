@@ -1,4 +1,4 @@
-# WhatsApp TUI
+# WhatsTUI
 
 A lightweight WhatsApp client for the terminal. It links to your phone as
 another device (like WhatsApp Web) and shows your chats, groups, pictures,
@@ -8,9 +8,11 @@ The WhatsApp side is a small Go helper built on
 [whatsmeow](https://github.com/tulir/whatsmeow), carried inside the
 binary; the interface is Rust ([ratatui](https://ratatui.rs)).
 
-The interface is in Brazilian Portuguese for now.
+The interface is in English by default and can be switched to Brazilian
+Portuguese in **Settings** (account menu, Alt+S), stored as
+`language = pt-BR` in `~/.config/whatstui/config`.
 
-> **Unofficial.** whatsapp-tui is not affiliated with, endorsed by or
+> **Unofficial.** whatstui is not affiliated with, endorsed by or
 > connected to WhatsApp or Meta. "WhatsApp" is a trademark of its owner, used
 > here only to say what this connects to. Use it at your own risk.
 
@@ -28,18 +30,29 @@ The interface is in Brazilian Portuguese for now.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/leonavas/whatsapp-tui/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/leonavas/whatstui/master/install.sh | sh
 ```
 
 The script ([install.sh](install.sh)) downloads the latest
-[release](https://github.com/leonavas/whatsapp-tui/releases) for your
+[release](https://github.com/leonavas/whatstui/releases) for your
 architecture (built on Ubuntu 24.04, so glibc 2.39 or newer), checks its
-SHA-256 and puts `whatsapp-tui` in `~/.local/bin`, without sudo, plus its
+SHA-256 and puts `whatstui` in `~/.local/bin`, without sudo, plus its
 desktop entry and icon in `~/.local/share`, so it shows in your app launcher.
-It warns when that folder is not on your `PATH`. `WHATSAPP_TUI_INSTALL_DIR`
-changes the folder and `WHATSAPP_TUI_VERSION=v0.1.0` picks a version.
-Installed this way, whatsapp-tui updates itself (see [Auto-update](#auto-update));
+It warns when that folder is not on your `PATH`. `WHATSTUI_INSTALL_DIR`
+changes the folder and `WHATSTUI_VERSION=v0.1.0` picks a version.
+Installed this way, whatstui updates itself (see [Auto-update](#auto-update));
 running the script again also updates it.
+
+### Upgrading from whatsapp-tui
+
+The app was renamed whatstui. On first start it moves
+`~/.local/share/whatsapp-tui`, `~/.cache/whatsapp-tui` and
+`~/.config/whatsapp-tui` to the `whatstui` names, linked session included, so
+there's no QR code to scan again. The old binary
+(`~/.local/bin/whatsapp-tui`), desktop entry
+(`~/.local/share/applications/whatsapp-tui.desktop`) and icons
+(`whatsapp-tui.*`) can be removed. The window class is now
+`org.omarchy.whatstui`.
 
 ### From source
 
@@ -51,23 +64,23 @@ your `PATH`.
 Then either:
 
 ```sh
-cargo install --locked --git https://github.com/leonavas/whatsapp-tui
+cargo install --locked --git https://github.com/leonavas/whatstui
 ```
 
 or, from a clone:
 
 ```sh
 cargo build --release
-./target/release/whatsapp-tui
+./target/release/whatstui
 ```
 
-`assets/` has the icon and a desktop entry (`whatsapp-tui.desktop`, which
-opens it in a terminal with the window class `org.omarchy.whatsapp-tui`).
+`assets/` has the icon and a desktop entry (`whatstui.desktop`, which
+opens it in a terminal with the window class `org.omarchy.whatstui`).
 
 ## Link your phone
 
 The first start shows a QR code: scan it in WhatsApp on your phone, under
-**Linked devices**. The session is kept in `~/.local/share/whatsapp-tui/`.
+**Linked devices**. The session is kept in `~/.local/share/whatstui/`.
 
 ## Keys
 
@@ -143,7 +156,7 @@ buttons open in the browser.
 A shared place shows the small map the phone sent, its name and address; a
 click on the map or the name opens it in Google Maps.
 
-Downloads are kept in `~/.cache/whatsapp-tui/media/`: what isn't seen in 7
+Downloads are kept in `~/.cache/whatstui/media/`: what isn't seen in 7
 days goes, and over 900 MB the media seen longest ago goes first (it
 downloads again when it's wanted).
 
@@ -172,26 +185,26 @@ unread. This device never rings or answers one.
 
 ## Events and scripting
 
-whatsapp-tui runs once per session (running it again brings the open one to
+whatstui runs once per session (running it again brings the open one to
 the front) and tells other programs what is unread: a snapshot in
-`$XDG_RUNTIME_DIR/whatsapp-tui/state.json`, an event stream
-(`whatsapp-tui events`), hooks in `~/.config/whatsapp-tui/hooks/`, and
-commands such as `whatsapp-tui open <chat>` and `whatsapp-tui pause 1h`. See
+`$XDG_RUNTIME_DIR/whatstui/state.json`, an event stream
+(`whatstui events`), hooks in `~/.config/whatstui/hooks/`, and
+commands such as `whatstui open <chat>` and `whatstui pause 1h`. See
 [docs/events.md](docs/events.md).
 
 It shows a tray icon (StatusNotifierItem) with a dot while chats wait. The
 settings (your name › Configurações) turn it off, and with it the sidebar's
 photos, read receipts, whether Enter sends and the update check; they're kept
-as `key = value` lines in `~/.config/whatsapp-tui/config` (`tray`,
+as `key = value` lines in `~/.config/whatstui/config` (`tray`,
 `sidebar_avatars`, `read_receipts`, `enter_sends`, `auto_update`).
 
 ## Omarchy plugin
 
-![WhatsApp in the Omarchy bar: badges, the hover preview and the menu](https://raw.githubusercontent.com/leonavas/omarchy-whatsapp-tui/master/preview.png)
+![WhatsApp in the Omarchy bar: badges, the hover preview and the menu](https://raw.githubusercontent.com/leonavas/omarchy-whatstui/master/preview.png)
 
 On [Omarchy](https://omarchy.org), the
-[WhatsApp TUI bar plugin](https://github.com/leonavas/omarchy-whatsapp-tui)
-(`leonavas.whatsapp-tui`) runs on whatsapp-tui and puts WhatsApp in the bar in
+[WhatsTUI bar plugin](https://github.com/leonavas/omarchy-whatstui)
+(`leonavas.whatstui`) runs on whatstui and puts WhatsApp in the bar in
 place of the tray icon:
 
 - red and blue badges for unread direct chats and groups (muted chats stay
@@ -199,34 +212,34 @@ place of the tray icon:
 - a preview of the unread chats and their newest messages on hover, a click
   jumps to the chat;
 - desktop notifications for new messages, with the contact's picture;
-- whatsapp-tui parked in the scratchpad (SUPER+S), a click shows or hides it;
+- whatstui parked in the scratchpad (SUPER+S), a click shows or hides it;
 - a right-click menu: Launch on Login, Launch in Foreground, Open in
   Scratchpad, pause notifications.
 
-Install whatsapp-tui first (above), then:
+Install whatstui first (above), then:
 
 ```sh
-omarchy plugin add https://github.com/leonavas/omarchy-whatsapp-tui.git
-omarchy plugin enable leonavas.whatsapp-tui --section right
+omarchy plugin add https://github.com/leonavas/omarchy-whatstui.git
+omarchy plugin enable leonavas.whatstui --section right
 ```
 
-Update it with `omarchy plugin update leonavas.whatsapp-tui`, then
-`omarchy restart shell`. With the plugin in the bar, turn whatsapp-tui's own
+Update it with `omarchy plugin update leonavas.whatstui`, then
+`omarchy restart shell`. With the plugin in the bar, turn whatstui's own
 tray icon off in Settings (your name › Configurações), or with `tray = false`
-in the config. Remove it with `omarchy plugin remove leonavas.whatsapp-tui`.
+in the config. Remove it with `omarchy plugin remove leonavas.whatstui`.
 
 ## Auto-update
 
-Every time it starts, and every 6 hours while open, whatsapp-tui asks GitHub
+Every time it starts, and every 6 hours while open, whatstui asks GitHub
 for the latest release in the background (errors are ignored). When there is
 a newer one, a small green "↑ X.Y.Z" button shows at the right of your name in
 the account button, at the bottom of the sidebar. Nothing is downloaded until
 you click it:
 
-- If whatsapp-tui was installed from a release into a folder you can write to
+- If whatstui was installed from a release into a folder you can write to
   (like `~/.local/bin`, where install.sh puts it), the click downloads the
   archive for your architecture, checks its SHA-256 and replaces
-  `whatsapp-tui` in place (and the desktop entry and icons, if install.sh put
+  `whatstui` in place (and the desktop entry and icons, if install.sh put
   them in `~/.local/share`). The button reads "atualizando…" meanwhile, then
   "↻ reiniciar": click it (or press `Ctrl+O`) to restart into the new version
   in the same terminal; the WhatsApp helper stops and the new one starts with
@@ -236,11 +249,11 @@ you click it:
   `/nix`) or the folder is read-only, the click only tells in the status line
   how to update (for cargo, the `cargo install` command above).
 
-Development builds (`target/`) never check, unless `WHATSAPP_TUI_UPDATE_DEV=1`
+Development builds (`target/`) never check, unless `WHATSTUI_UPDATE_DEV=1`
 is set: then the button shows (with a made-up version when there is no
 release) and a click only says it is a development build.
 
-`whatsapp-tui update` checks and installs right away, printing what it does,
+`whatstui update` checks and installs right away, printing what it does,
 and "Procurar atualizações" in the account menu checks right away from the app
 (also with `auto_update = false`). Turn the automatic check off in Settings
 (your name › Configurações › Atualizações), or with `auto_update = false` in

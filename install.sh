@@ -1,19 +1,19 @@
 #!/bin/sh
-# whatsapp-tui installer for Linux.
+# whatstui installer for Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/leonavas/whatsapp-tui/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/leonavas/whatstui/master/install.sh | sh
 #
-# Downloads the latest release (or WHATSAPP_TUI_VERSION=v0.1.0) for this
-# machine, checks its SHA-256, puts `whatsapp-tui` in
-# ${WHATSAPP_TUI_INSTALL_DIR:-$HOME/.local/bin} and its desktop entry and icon
+# Downloads the latest release (or WHATSTUI_VERSION=v0.1.0) for this
+# machine, checks its SHA-256, puts `whatstui` in
+# ${WHATSTUI_INSTALL_DIR:-$HOME/.local/bin} and its desktop entry and icon
 # in ~/.local/share. No sudo. Run it again to update.
 
 set -eu
 
-REPO="leonavas/whatsapp-tui"
+REPO="leonavas/whatstui"
 
-say() { printf 'whatsapp-tui: %s\n' "$*"; }
-err() { printf 'whatsapp-tui: error: %s\n' "$*" >&2; exit 1; }
+say() { printf 'whatstui: %s\n' "$*"; }
+err() { printf 'whatstui: error: %s\n' "$*" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
 # fetch URL FILE, or fetch URL to stdout
@@ -58,10 +58,10 @@ latest() {
 
 main() {
     tgt=$(target)
-    dir="${WHATSAPP_TUI_INSTALL_DIR:-$HOME/.local/bin}"
+    dir="${WHATSTUI_INSTALL_DIR:-$HOME/.local/bin}"
     share="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-    tag="${WHATSAPP_TUI_VERSION:-}"
+    tag="${WHATSTUI_VERSION:-}"
     if [ -z "$tag" ]; then
         tag=$(latest) || true
         [ -n "$tag" ] || err "could not find the latest release on GitHub"
@@ -69,14 +69,14 @@ main() {
     case "$tag" in v*) ;; *) tag="v$tag" ;; esac
     ver="${tag#v}"
 
-    name="whatsapp-tui-$ver-$tgt.tar.gz"
+    name="whatstui-$ver-$tgt.tar.gz"
     url="https://github.com/$REPO/releases/download/$tag/$name"
 
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     trap 'exit 1' INT TERM
 
-    say "downloading whatsapp-tui $ver ($tgt)"
+    say "downloading whatstui $ver ($tgt)"
     fetch "$url" "$tmp/$name" || err "download failed: $url"
     fetch "$url.sha256" "$tmp/$name.sha256" || err "download failed: $url.sha256"
 
@@ -87,17 +87,17 @@ main() {
     mkdir "$tmp/pkg"
     tar -xzf "$tmp/$name" -C "$tmp/pkg" || err "could not unpack $name"
     mkdir -p "$dir"
-    # Replaced by a rename, so a running whatsapp-tui keeps its own copy.
-    cp "$tmp/pkg/whatsapp-tui" "$dir/.whatsapp-tui.new"
-    chmod 755 "$dir/.whatsapp-tui.new"
-    mv -f "$dir/.whatsapp-tui.new" "$dir/whatsapp-tui"
-    say "installed $dir/whatsapp-tui"
+    # Replaced by a rename, so a running whatstui keeps its own copy.
+    cp "$tmp/pkg/whatstui" "$dir/.whatstui.new"
+    chmod 755 "$dir/.whatstui.new"
+    mv -f "$dir/.whatstui.new" "$dir/whatstui"
+    say "installed $dir/whatstui"
 
     # The launcher entry and its icon.
     mkdir -p "$share/applications" "$share/icons/hicolor/scalable/apps" "$share/icons/hicolor/256x256/apps"
-    cp "$tmp/pkg/whatsapp-tui.desktop" "$share/applications/"
-    cp "$tmp/pkg/whatsapp-tui.svg" "$share/icons/hicolor/scalable/apps/"
-    cp "$tmp/pkg/whatsapp-tui-256.png" "$share/icons/hicolor/256x256/apps/whatsapp-tui.png"
+    cp "$tmp/pkg/whatstui.desktop" "$share/applications/"
+    cp "$tmp/pkg/whatstui.svg" "$share/icons/hicolor/scalable/apps/"
+    cp "$tmp/pkg/whatstui-256.png" "$share/icons/hicolor/256x256/apps/whatstui.png"
     has update-desktop-database && update-desktop-database "$share/applications" >/dev/null 2>&1 || true
     has gtk-update-icon-cache && gtk-update-icon-cache -q "$share/icons/hicolor" >/dev/null 2>&1 || true
 
@@ -109,7 +109,7 @@ main() {
             ;;
     esac
 
-    say "done. Run: whatsapp-tui"
+    say "done. Run: whatstui"
 }
 
 main "$@"

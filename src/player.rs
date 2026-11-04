@@ -49,7 +49,7 @@ pub struct Player {
 impl Player {
     pub fn new(tx: Sender<crate::Ev>) -> Player {
         let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let sock = dir.join(format!("whatsapp-tui-mpv-{}.sock", std::process::id()));
+        let sock = dir.join(format!("whatstui-mpv-{}.sock", std::process::id()));
         Player { now: None, child: None, ipc: None, gen: 0, sock, tx }
     }
 
@@ -89,8 +89,8 @@ impl Player {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => "Instale o mpv para ouvir áudios".to_string(),
-                _ => format!("não tocou: {e}"),
+                std::io::ErrorKind::NotFound => tr!("Install mpv to play audio", "Instale o mpv para ouvir áudios").to_string(),
+                _ => tr!(format!("couldn't play: {e}"), format!("não tocou: {e}")),
             })?;
         self.child = Some(child);
         // mpv makes the socket within a few dozen milliseconds of starting.
@@ -101,7 +101,7 @@ impl Player {
                 Err(_) if Instant::now() < until && self.child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None))) => {
                     std::thread::sleep(Duration::from_millis(15))
                 }
-                Err(_) => return Err("o mpv não abriu o áudio".into()),
+                Err(_) => return Err(tr!("mpv didn't open the audio", "o mpv não abriu o áudio").into()),
             }
         };
         let reader = stream.try_clone().map_err(|e| e.to_string())?;

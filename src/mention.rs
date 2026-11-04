@@ -21,7 +21,9 @@ use unicode_width::UnicodeWidthStr;
 /// Rows shown at once; the rest scroll.
 const ROWS: usize = 6;
 /// What "@all" reads as, in the box and in the chat.
-pub const EVERYONE: &str = "todos";
+fn everyone() -> &'static str {
+    tr!("all", "todos")
+}
 
 /// One row of the list: everyone, or a member.
 #[derive(Clone)]
@@ -111,7 +113,7 @@ impl App {
             .cloned()
             .map(Choice::One)
             .collect();
-        if !members.is_empty() && (EVERYONE.starts_with(&q) || "all".starts_with(&q)) {
+        if !members.is_empty() && (everyone().starts_with(&q) || "all".starts_with(&q)) {
             out.insert(0, Choice::All);
         }
         (!out.is_empty()).then_some(out)
@@ -121,7 +123,7 @@ impl App {
     fn mention_pick(&mut self, c: &Choice) {
         let (Some(chat), Some((start, _))) = (self.open.clone(), fragment(&self.input, self.caret)) else { return };
         let (name, sent) = match c {
-            Choice::All => (EVERYONE.to_string(), "@all".to_string()),
+            Choice::All => (everyone().to_string(), "@all".to_string()),
             Choice::One(m) => (label(m), format!("@{}", if m.user.is_empty() { m.jid.split('@').next().unwrap_or_default() } else { m.user.as_str() })),
         };
         let shown = format!("@{name}");
@@ -205,7 +207,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     for (j, c) in list.iter().enumerate().skip(p.off).take(k) {
         let lit = if j == p.sel { Style::new().bg(SELECTED) } else { bg };
         let (name, sub) = match c {
-            Choice::All => (format!("@{EVERYONE}"), "Mencione todos os membros do grupo".to_string()),
+            Choice::All => (format!("@{}", everyone()), tr!("Mention everyone in the group", "Mencione todos os membros do grupo").to_string()),
             Choice::One(m) => {
                 let sub = if m.name.starts_with('~') || m.name.is_empty() { phone(&m.jid) } else { String::new() };
                 (label(m), sub)

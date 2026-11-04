@@ -1,4 +1,4 @@
-//! `~/.config/whatsapp-tui/config`, `key = value` lines as slick keeps its
+//! `~/.config/whatstui/config`, `key = value` lines as slick keeps its
 //! own, and the switches the settings dialog flips there.
 
 use std::collections::HashMap;
@@ -43,25 +43,36 @@ pub fn set(values: &[(&str, String)]) -> std::io::Result<()> {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Opt {
     pub key: &'static str,
-    pub label: &'static str,
+    /// English, Brazilian Portuguese.
+    pub label: (&'static str, &'static str),
     pub default: bool,
 }
 
-pub const PHOTOS: Opt = Opt { key: "sidebar_avatars", label: "Mostrar fotos na lista", default: true };
-pub const RECEIPTS: Opt = Opt { key: "read_receipts", label: "Confirmações de leitura", default: true };
-pub const ENTER_SENDS: Opt = Opt { key: "enter_sends", label: "Enter envia a mensagem", default: true };
-pub const TRAY: Opt = Opt { key: "tray", label: "Mostrar o ícone na bandeja", default: true };
-pub const VIDEO_INLINE: Opt = Opt { key: "video_inline", label: "Tocar vídeos no app", default: true };
-pub const AUTO_UPDATE: Opt = Opt { key: "auto_update", label: "Procurar atualizações automaticamente", default: true };
+impl Opt {
+    pub fn label(&self) -> &'static str {
+        tr!(self.label.0, self.label.1)
+    }
+}
+
+pub const PHOTOS: Opt = Opt { key: "sidebar_avatars", label: ("Show pictures in the list", "Mostrar fotos na lista"), default: true };
+pub const RECEIPTS: Opt = Opt { key: "read_receipts", label: ("Read receipts", "Confirmações de leitura"), default: true };
+pub const ENTER_SENDS: Opt = Opt { key: "enter_sends", label: ("Enter sends the message", "Enter envia a mensagem"), default: true };
+pub const TRAY: Opt = Opt { key: "tray", label: ("Show the tray icon", "Mostrar o ícone na bandeja"), default: true };
+pub const VIDEO_INLINE: Opt = Opt { key: "video_inline", label: ("Play videos in the app", "Tocar vídeos no app"), default: true };
+/// On: the interface in Brazilian Portuguese. Kept as `language = pt-BR`
+/// (or `en`) rather than true/false; English when the config doesn't say.
+pub const PORTUGUESE: Opt = Opt { key: crate::i18n::KEY, label: ("Interface in Portuguese (Brazil)", "Interface em português (Brasil)"), default: false };
+pub const AUTO_UPDATE: Opt = Opt { key: "auto_update", label: ("Check for updates automatically", "Procurar atualizações automaticamente"), default: true };
 
 /// The settings dialog, top to bottom: a heading over each group's switches.
 /// A new setting is a const above and its place here.
-pub const SECTIONS: &[(&str, &[Opt])] = &[
-    ("Barra lateral", &[PHOTOS]),
-    ("Conversas", &[RECEIPTS]),
-    ("Mensagens", &[ENTER_SENDS, VIDEO_INLINE]),
-    ("Bandeja do sistema", &[TRAY]),
-    ("Atualizações", &[AUTO_UPDATE]),
+pub const SECTIONS: &[((&str, &str), &[Opt])] = &[
+    (("Language", "Idioma"), &[PORTUGUESE]),
+    (("Sidebar", "Barra lateral"), &[PHOTOS]),
+    (("Chats", "Conversas"), &[RECEIPTS]),
+    (("Messages", "Mensagens"), &[ENTER_SENDS, VIDEO_INLINE]),
+    (("System tray", "Bandeja do sistema"), &[TRAY]),
+    (("Updates", "Atualizações"), &[AUTO_UPDATE]),
 ];
 
 /// Looking for new versions at start-up and every 6h (`update`); read fresh
@@ -90,7 +101,7 @@ pub struct Settings(HashMap<&'static str, bool>);
 
 impl Settings {
     pub fn load() -> Settings {
-        Settings(opts().into_iter().map(|o| (o.key, value(o.key).map_or(o.default, |v| v != "false"))).collect())
+        Settings(opts().into_iter().map(|o| (o.key, value(o.key).map_or(o.default, |v| read(o, &v)))).collect())
     }
 
     pub fn on(&self, o: Opt) -> bool {
@@ -101,6 +112,15 @@ impl Settings {
     pub fn flip(&mut self, o: Opt) -> std::io::Result<()> {
         let on = !self.on(o);
         self.0.insert(o.key, on);
+        if o == PORTUGUESE {
+            crate::i18n::set_pt(on);
+            return set(&[(o.key, if on { crate::i18n::PT_BR } else { "en" }.to_string())]);
+        }
         set(&[(o.key, on.to_string())])
     }
+}
+
+/// A switch's value as the config has it.
+fn read(o: Opt, v: &str) -> bool {
+    if o == PORTUGUESE { crate::i18n::is_pt(v) } else { v != "false" }
 }

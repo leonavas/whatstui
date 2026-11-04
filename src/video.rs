@@ -140,7 +140,7 @@ pub fn external(path: &str, gif: bool) -> Result<(), String> {
             crate::links::open(path);
             Ok(())
         }
-        Err(e) => Err(format!("não tocou o vídeo: {e}")),
+        Err(e) => Err(tr!(format!("couldn't play the video: {e}"), format!("não tocou o vídeo: {e}"))),
         Ok(()) => Ok(()),
     }
 }
@@ -151,7 +151,7 @@ fn window(path: &str, gif: bool) -> std::io::Result<()> {
     let mut cmd = Command::new("mpv");
     cmd.args(["--no-terminal", "--really-quiet", "--force-window=immediate", "--keep-open=no"]);
     if let Some(name) = Path::new(path).file_name() {
-        cmd.arg(format!("--title=Vídeo · {}", name.to_string_lossy()));
+        cmd.arg(tr!(format!("--title=Video · {}", name.to_string_lossy()), format!("--title=Vídeo · {}", name.to_string_lossy())));
     }
     if gif {
         cmd.args(["--loop-file=inf", "--no-audio"]);

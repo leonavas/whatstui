@@ -10,7 +10,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-const HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/whatsapp-tui-bridge"));
+const HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/whatstui-bridge"));
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Chat {
@@ -384,7 +384,7 @@ pub enum Event {
 }
 
 /// The app's folders' name, under the data and cache homes.
-pub const NAME: &str = "whatsapp-tui";
+pub const NAME: &str = "whatstui";
 
 pub fn data_dir() -> PathBuf {
     xdg("XDG_DATA_HOME", ".local/share").join(NAME)
@@ -399,34 +399,46 @@ pub fn config_dir() -> PathBuf {
     xdg("XDG_CONFIG_HOME", ".config").join(NAME)
 }
 
-/// The app was called zap: its folders move to the new names, the paired
-/// session with them, so nobody has to scan the QR code again. Nothing is
-/// removed; a new folder already there wins and the old one stays put.
+/// The app was called zap, then whatsapp-tui: its folders move to the new
+/// names, the paired session with them, so nobody has to scan the QR code
+/// again. Nothing is removed; a new folder already there wins and the old one
+/// stays put.
+const OLD_NAMES: [&str; 2] = ["whatsapp-tui", "zap"];
+
 pub fn migrate() -> std::io::Result<()> {
-    for home in [("XDG_DATA_HOME", ".local/share"), ("XDG_CACHE_HOME", ".cache")] {
+    for home in [("XDG_DATA_HOME", ".local/share"), ("XDG_CACHE_HOME", ".cache"), ("XDG_CONFIG_HOME", ".config")] {
         let base = xdg(home.0, home.1);
-        let (old, new) = (base.join("zap"), base.join(NAME));
-        if old.is_dir() && !new.exists() {
-            let _ = std::fs::rename(&old, &new);
+        let new = base.join(NAME);
+        for old in OLD_NAMES {
+            let old = base.join(old);
+            if old.is_dir() && !new.exists() {
+                let _ = std::fs::rename(&old, &new);
+            }
         }
     }
     let data = data_dir();
     crate::privacy::prepare_dir(&data)?;
     // With its write-ahead log: what that holds isn't in the database yet.
-    if data.join("zap.db").exists() && !data.join(format!("{NAME}.db")).exists() {
-        for ext in ["-wal", "-shm", ""] {
-            let old = data.join(format!("zap.db{ext}"));
-            if old.exists() {
-                let _ = std::fs::rename(&old, data.join(format!("{NAME}.db{ext}")));
+    for old in OLD_NAMES {
+        if data.join(format!("{old}.db")).exists() && !data.join(format!("{NAME}.db")).exists() {
+            for ext in ["-wal", "-shm", ""] {
+                let from = data.join(format!("{old}.db{ext}"));
+                if from.exists() {
+                    let _ = std::fs::rename(&from, data.join(format!("{NAME}.db{ext}")));
+                }
             }
         }
     }
     // Drafts point at pictures pasted into the old cache.
     let drafts = data.join("drafts.json");
-    let old_cache = xdg("XDG_CACHE_HOME", ".cache").join("zap").display().to_string();
     if let Ok(text) = std::fs::read_to_string(&drafts) {
-        if text.contains(&old_cache) {
-            crate::privacy::write_file(&drafts, text.replace(&old_cache, &cache_dir().display().to_string()))?;
+        let new_cache = cache_dir().display().to_string();
+        let mut fixed = text.clone();
+        for old in OLD_NAMES {
+            fixed = fixed.replace(&xdg("XDG_CACHE_HOME", ".cache").join(old).display().to_string(), &new_cache);
+        }
+        if fixed != text {
+            crate::privacy::write_file(&drafts, fixed)?;
         }
     }
     Ok(())
@@ -439,19 +451,19 @@ pub(crate) fn xdg(var: &str, fallback: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(fallback))
 }
 
-/// The helper, written to `~/.cache/whatsapp-tui/bridge-<hash>/` once per
-/// build, older copies removed. `WHATSAPP_TUI_BRIDGE` points at another one
+/// The helper, written to `~/.cache/whatstui/bridge-<hash>/` once per
+/// build, older copies removed. `WHATSTUI_BRIDGE` points at another one
 /// (development).
 fn program() -> Result<PathBuf, String> {
     use sha2::{Digest, Sha256};
     use std::os::unix::fs::PermissionsExt;
-    if let Some(p) = std::env::var_os("WHATSAPP_TUI_BRIDGE") {
+    if let Some(p) = std::env::var_os("WHATSTUI_BRIDGE") {
         return Ok(p.into());
     }
     let hash: String = Sha256::digest(HELPER).iter().take(6).map(|b| format!("{b:02x}")).collect();
     let cache = cache_dir();
     let dir = cache.join(format!("bridge-{hash}"));
-    let path = dir.join("whatsapp-tui-bridge");
+    let path = dir.join("whatstui-bridge");
     if path.exists() {
         return Ok(path);
     }
@@ -463,12 +475,12 @@ fn program() -> Result<PathBuf, String> {
             }
         }
         std::fs::create_dir_all(&dir)?;
-        let tmp = dir.join(".whatsapp-tui-bridge.tmp");
+        let tmp = dir.join(".whatstui-bridge.tmp");
         std::fs::write(&tmp, HELPER)?;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
         std::fs::rename(&tmp, &path)
     };
-    write().map_err(|e| format!("não preparou o bridge: {e}"))?;
+    write().map_err(|e| tr!(format!("couldn't set up the bridge: {e}"), format!("não preparou o bridge: {e}")))?;
     Ok(path)
 }
 
@@ -480,17 +492,18 @@ pub struct Bridge {
 impl Bridge {
     pub fn spawn(tx: Sender<Ev>, generation: u64) -> Result<Bridge, String> {
         let data = data_dir();
-        crate::privacy::prepare_dir(&data).map_err(|e| format!("não protegeu {}: {e}", data.display()))?;
+        crate::privacy::prepare_dir(&data).map_err(|e| tr!(format!("couldn't protect {}: {e}", data.display()), format!("não protegeu {}: {e}", data.display())))?;
         // The last run's log kept beside, for what happened before a restart.
         let _ = std::fs::rename(data.join("bridge.log"), data.join("bridge.log.1"));
         let log = crate::privacy::create_file(&data.join("bridge.log")).map_err(|e| e.to_string())?;
         let mut child = Command::new(program()?)
             .arg(&data)
+            .env("WHATSTUI_LANG", crate::i18n::code())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(log)
             .spawn()
-            .map_err(|e| format!("não iniciou o bridge: {e}"))?;
+            .map_err(|e| tr!(format!("couldn't start the bridge: {e}"), format!("não iniciou o bridge: {e}")))?;
         let stdout = child.stdout.take().expect("piped stdout");
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {

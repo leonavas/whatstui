@@ -15,15 +15,16 @@ use std::sync::OnceLock;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-const TABS: [(&str, &str); 8] = [
-    ("\u{f118}", "Smileys e pessoas"),
-    ("\u{f1b0}", "Animais e natureza"),
-    ("\u{f0f4}", "Comidas e bebidas"),
-    ("\u{f1e3}", "Atividades"),
-    ("\u{f1b9}", "Viagens e lugares"),
-    ("\u{f0eb}", "Objetos"),
-    ("\u{f08a}", "Símbolos"),
-    ("\u{f024}", "Bandeiras"),
+/// Each tab's icon and its section's title, in English and in Portuguese.
+const TABS: [(&str, &str, &str); 8] = [
+    ("\u{f118}", "Smileys & people", "Smileys e pessoas"),
+    ("\u{f1b0}", "Animals & nature", "Animais e natureza"),
+    ("\u{f0f4}", "Food & drink", "Comidas e bebidas"),
+    ("\u{f1e3}", "Activity", "Atividades"),
+    ("\u{f1b9}", "Travel & places", "Viagens e lugares"),
+    ("\u{f0eb}", "Objects", "Objetos"),
+    ("\u{f08a}", "Symbols", "Símbolos"),
+    ("\u{f024}", "Flags", "Bandeiras"),
 ];
 /// Each emoji's columns in the grid.
 const CELL: u16 = 4;
@@ -144,12 +145,12 @@ impl Panel {
     fn rows(&self) -> Vec<Row<'_>> {
         let mut sections: Vec<(&'static str, Option<usize>, &[&'static str])> = Vec::new();
         if !self.query.is_empty() {
-            sections.push(("Resultados", None, &self.found));
+            sections.push((tr!("Results", "Resultados"), None, &self.found));
         } else {
             if !self.shown_recent.is_empty() {
-                sections.push(("Recentes", Some(0), &self.shown_recent));
+                sections.push((tr!("Recent", "Recentes"), Some(0), &self.shown_recent));
             }
-            sections.extend(TABS.iter().zip(cats()).enumerate().map(|(i, ((_, t), list))| (*t, Some(i), list.as_slice())));
+            sections.extend(TABS.iter().zip(cats()).enumerate().map(|(i, ((_, en, pt), list))| (tr!(*en, *pt), Some(i), list.as_slice())));
         }
         let mut rows = Vec::new();
         let mut n = 0;
@@ -420,7 +421,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let mut rule = vec![Span::styled("  ", bg)];
     let mut tab_rects = Vec::new();
     let mut x = 0;
-    for (i, (icon, _)) in TABS.iter().enumerate() {
+    for (i, (icon, ..)) in TABS.iter().enumerate() {
         let (s, e) = (slot(i), slot(i + 1));
         let mid = s + (e - s - 1) / 2;
         let on = cur == Some(i);
@@ -441,7 +442,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let field = Style::new().fg(TEXT).bg(FIELD);
     let room = iw.saturating_sub(7);
     let (text, style) = if p.query.is_empty() {
-        ("Pesquisar emoji".to_string(), Style::new().fg(META_IN).bg(FIELD))
+        (tr!("Search emoji", "Pesquisar emoji").to_string(), Style::new().fg(META_IN).bg(FIELD))
     } else {
         let mut t: Vec<&str> = p.query.graphemes(true).collect();
         while t.concat().width() > room {
@@ -490,7 +491,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         lines.push(Line::from(spans));
     }
     if total == 0 {
-        lines.push(Line::from(Span::styled(format!("{}Nenhum emoji encontrado", " ".repeat(lead)), Style::new().fg(META_IN).bg(DAY_PILL))));
+        lines.push(Line::from(Span::styled(format!("{}{}", " ".repeat(lead), tr!("No emoji found", "Nenhum emoji encontrado")), Style::new().fg(META_IN).bg(DAY_PILL))));
     }
     while lines.len() < h as usize - 1 {
         lines.push(blank(bg));

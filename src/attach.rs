@@ -79,10 +79,10 @@ impl Kind {
 
     fn label(self) -> &'static str {
         match self {
-            Kind::Image => "Foto",
-            Kind::Video => "Vídeo",
-            Kind::Audio => "Áudio",
-            Kind::Document => "Documento",
+            Kind::Image => tr!("Photo", "Foto"),
+            Kind::Video => tr!("Video", "Vídeo"),
+            Kind::Audio => tr!("Audio", "Áudio"),
+            Kind::Document => tr!("Document", "Documento"),
         }
     }
 }
@@ -95,7 +95,7 @@ pub struct Attachment {
     pub size: u64,
     pub kind: Kind,
     pub thumb: Option<DynamicImage>,
-    /// Made by whatsapp-tui (a pasted picture): removed once sent or dropped.
+    /// Made by whatstui (a pasted picture): removed once sent or dropped.
     pub temp: bool,
 }
 
@@ -103,8 +103,8 @@ impl Attachment {
     /// How a draft of only this reads in the chat list.
     pub fn draft_label(&self) -> String {
         match self.kind {
-            Kind::Image => "📷 Foto".into(),
-            Kind::Video => "🎥 Vídeo".into(),
+            Kind::Image => tr!("📷 Photo", "📷 Foto").into(),
+            Kind::Video => tr!("🎥 Video", "🎥 Vídeo").into(),
             Kind::Audio => format!("🎧 {}", self.name),
             Kind::Document => format!("📄 {}", self.name),
         }
@@ -114,16 +114,23 @@ impl Attachment {
 /// One choice of the clip's menu.
 struct Pick {
     icon: &'static str,
-    label: &'static str,
+    /// In English and in Portuguese: `name` gives the one in use.
+    label: (&'static str, &'static str),
     color: Color,
     /// The chooser's filter; empty takes any file.
     exts: &'static [&'static str],
 }
 
+impl Pick {
+    fn name(&self) -> &'static str {
+        tr!(self.label.0, self.label.1)
+    }
+}
+
 const PICKS: [Pick; 3] = [
-    Pick { icon: "\u{f15b}", label: "Documento", color: Color::Rgb(0x7F, 0x66, 0xFF), exts: &[] },
-    Pick { icon: "\u{f03e}", label: "Fotos e vídeos", color: Color::Rgb(0x00, 0x7B, 0xFC), exts: &["jpg", "jpeg", "png", "webp", "mp4", "m4v", "3gp"] },
-    Pick { icon: "\u{f025}", label: "Áudio", color: Color::Rgb(0xFA, 0x65, 0x33), exts: &AUDIOS },
+    Pick { icon: "\u{f15b}", label: ("Document", "Documento"), color: Color::Rgb(0x7F, 0x66, 0xFF), exts: &[] },
+    Pick { icon: "\u{f03e}", label: ("Photos & videos", "Fotos e vídeos"), color: Color::Rgb(0x00, 0x7B, 0xFC), exts: &["jpg", "jpeg", "png", "webp", "mp4", "m4v", "3gp"] },
+    Pick { icon: "\u{f025}", label: ("Audio", "Áudio"), color: Color::Rgb(0xFA, 0x65, 0x33), exts: &AUDIOS },
 ];
 
 #[derive(Default)]
@@ -239,7 +246,7 @@ impl App {
     fn send_files(&mut self) {
         let Some(chat) = self.open.clone() else { return };
         if self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let Some(files) = self.attach.files.remove(&chat) else { return };
         let mut caption = self.input.trim().to_string();
@@ -340,7 +347,7 @@ impl App {
                     Ok(Clip::Files(v)) => self.add_files(chat, v),
                     Ok(Clip::Text(s)) if self.open.as_ref() == Some(&chat) && self.focus == Focus::Input => self.insert(&s),
                     Ok(Clip::Text(_)) => {}
-                    Ok(Clip::Empty) => self.note("Nada para colar."),
+                    Ok(Clip::Empty) => self.note(tr!("Nothing to paste.", "Nada para colar.")),
                     Err(e) => self.note(e),
                 }
             }
@@ -380,7 +387,9 @@ fn size(n: u64) -> String {
         _ => (n as f64 / 1e9, "GB"),
     };
     let s = if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
-    format!("{} {unit}", s.replace('.', ","))
+    // A decimal comma in Portuguese.
+    let s = if crate::i18n::pt() { s.replace('.', ",") } else { s };
+    format!("{s} {unit}")
 }
 
 fn cut(s: &str, width: usize) -> String {
@@ -470,7 +479,7 @@ pub fn draw_menu(f: &mut Frame, app: &mut App) {
     let Some(sel) = app.attach.menu else { return };
     let btn = app.attach_btn;
     let h = PICKS.len() as u16 + 2;
-    let w = PICKS.iter().map(|p| p.label.width()).max().unwrap_or(0) as u16 + 10;
+    let w = PICKS.iter().map(|p| p.name().width()).max().unwrap_or(0) as u16 + 10;
     let Some(y) = app.input_area.y.checked_sub(h).filter(|&y| y >= app.msgs_area.y && btn.width > 0) else {
         app.attach.menu = None;
         return;
@@ -484,13 +493,13 @@ pub fn draw_menu(f: &mut Frame, app: &mut App) {
     let mut lines = vec![blank.clone()];
     for (i, p) in PICKS.iter().enumerate() {
         let row = if i == sel { Style::new().bg(MENU_HOVER) } else { bg };
-        let pad = w as usize - 8 - p.label.width();
+        let pad = w as usize - 8 - p.name().width();
         lines.push(Line::from(vec![
             Span::styled(" ", bg),
             Span::styled("  ", row),
             Span::styled(p.icon, row.fg(p.color)),
             Span::styled("  ", row),
-            Span::styled(p.label, row.fg(TEXT)),
+            Span::styled(p.name(), row.fg(TEXT)),
             Span::styled(" ".repeat(pad + 1), row),
             Span::styled(" ", bg),
         ]));
@@ -559,8 +568,9 @@ fn temp_path(ext: &str) -> PathBuf {
 fn choose(p: &Pick) -> Result<Vec<PathBuf>, String> {
     use std::process::{Command, Stdio};
     let patterns: Vec<String> = p.exts.iter().flat_map(|e| [format!("*.{e}"), format!("*.{}", e.to_uppercase())]).collect();
-    let title = format!("WhatsApp: {}", p.label);
-    let gtk_filter = (!patterns.is_empty()).then(|| format!("--file-filter={} | {}", p.label, patterns.join(" ")));
+    let label = p.name();
+    let title = format!("WhatsApp: {label}");
+    let gtk_filter = (!patterns.is_empty()).then(|| format!("--file-filter={label} | {}", patterns.join(" ")));
     let tries: [(&str, Vec<String>); 3] = [
         ("zenity", [vec!["--file-selection".into(), "--multiple".into(), "--separator=\n".into(), format!("--title={title}")], gtk_filter.clone().into_iter().collect()].concat()),
         ("yad", [vec!["--file".into(), "--multiple".into(), "--separator=\n".into(), format!("--title={title}")], gtk_filter.into_iter().collect()].concat()),
@@ -571,7 +581,7 @@ fn choose(p: &Pick) -> Result<Vec<PathBuf>, String> {
                 "--multiple".into(),
                 "--separate-output".into(),
                 std::env::var("HOME").unwrap_or_default(),
-                if patterns.is_empty() { "*".into() } else { format!("{}|{}", patterns.join(" "), p.label) },
+                if patterns.is_empty() { "*".into() } else { format!("{}|{label}", patterns.join(" ")) },
                 "--title".into(),
                 title.clone(),
             ],
@@ -587,13 +597,13 @@ fn choose(p: &Pick) -> Result<Vec<PathBuf>, String> {
             Ok(o) => return Ok(String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect()),
         }
     }
-    Err("Sem seletor de arquivos: instale o zenity, ou cole com Ctrl+V.".into())
+    Err(tr!("No file chooser: install zenity, or paste with Ctrl+V.", "Sem seletor de arquivos: instale o zenity, ou cole com Ctrl+V.").into())
 }
 
-/// One file through the same chooser (your profile photo); None when
-/// it's cancelled.
+/// One file through the same chooser (your profile photo), `label` already
+/// in the language in use; None when it's cancelled.
 pub(crate) fn choose_one(label: &'static str, exts: &'static [&'static str]) -> Result<Option<PathBuf>, String> {
-    choose(&Pick { icon: "", label, color: Color::Reset, exts }).map(|v| v.into_iter().next())
+    choose(&Pick { icon: "", label: (label, label), color: Color::Reset, exts }).map(|v| v.into_iter().next())
 }
 
 // ---- the clipboard ---------------------------------------------------------
@@ -633,10 +643,10 @@ fn read_clipboard() -> Result<Clip, String> {
             "webp" => image::load_from_memory(&bytes).map_err(|e| e.to_string()).and_then(|i| i.save_with_format(&to, image::ImageFormat::Png).map_err(|e| e.to_string())),
             _ => std::fs::write(&to, &bytes).map_err(|e| e.to_string()),
         };
-        written.map_err(|e| format!("imagem colada: {e}"))?;
-        let mut a = prepare(&to, None).ok_or("imagem colada: ilegível")?;
+        written.map_err(|e| tr!(format!("pasted image: {e}"), format!("imagem colada: {e}")))?;
+        let mut a = prepare(&to, None).ok_or(tr!("pasted image: unreadable", "imagem colada: ilegível"))?;
         a.temp = true;
-        a.name = format!("imagem.{}", to.extension().unwrap_or_default().to_string_lossy());
+        a.name = format!("{}.{}", tr!("image", "imagem"), to.extension().unwrap_or_default().to_string_lossy());
         return Ok(Clip::Files(vec![a]));
     }
     let text = types.lines().any(|l| l.starts_with("text/") || matches!(l.trim(), "UTF8_STRING" | "STRING" | "TEXT"));
@@ -676,10 +686,10 @@ fn run(cmd: &str, package: &str, args: &[&str]) -> Result<Option<Vec<u8>>, Strin
     let spawned = Command::new(cmd).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
     let mut child = match spawned {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(format!("Colar precisa do {cmd}: instale o {package}.")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(tr!(format!("Pasting needs {cmd}: install {package}."), format!("Colar precisa do {cmd}: instale o {package}."))),
         Err(e) => return Err(format!("{cmd}: {e}")),
     };
-    let mut out = child.stdout.take().ok_or_else(|| format!("{cmd}: sem saída"))?;
+    let mut out = child.stdout.take().ok_or_else(|| tr!(format!("{cmd}: no output"), format!("{cmd}: sem saída")))?;
     let reader = std::thread::spawn(move || {
         let mut b = Vec::new();
         let _ = out.read_to_end(&mut b);
@@ -693,7 +703,7 @@ fn run(cmd: &str, package: &str, args: &[&str]) -> Result<Option<Vec<u8>>, Strin
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("o {cmd} não respondeu"));
+                return Err(tr!(format!("{cmd} didn't respond"), format!("o {cmd} não respondeu")));
             }
         }
     }

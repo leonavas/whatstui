@@ -1,4 +1,4 @@
-//! "Atalhos de teclado": the keys whatsapp-tui takes, grouped, each key a
+//! "Atalhos de teclado": the keys whatstui takes, grouped, each key a
 //! chip, as WhatsApp Web's shortcuts dialog shows them; two columns when
 //! the screen is wide enough, scrolled when it's too short.
 
@@ -26,89 +26,89 @@ fn sections(app: &App) -> Vec<Section> {
         if app.settings.on(ENTER_SENDS) { ("Enter", "Shift+Enter / Alt+Enter") } else { ("Shift+Enter / Alt+Enter", "Enter") };
     vec![
         (
-            "Navegação",
+            tr!("Navigation", "Navegação"),
             vec![
-                ("↑ ↓ / k j", "Mover pela lista"),
-                ("g / G", "Início / fim da lista"),
-                ("Enter / → / l", "Abrir a conversa"),
-                ("Ctrl+N / Ctrl+P", "Próxima / anterior conversa"),
-                ("Ctrl+K / /", "Pesquisar conversas e mensagens"),
-                ("1 2 3 4", "Tudo, Não lidas, Favoritas, Grupos"),
-                ("Esc", "Limpar a pesquisa"),
-                ("Esc / ← / h", "Sair das arquivadas"),
+                ("↑ ↓ / k j", tr!("Move through the list", "Mover pela lista")),
+                ("g / G", tr!("Top / bottom of the list", "Início / fim da lista")),
+                ("Enter / → / l", tr!("Open the chat", "Abrir a conversa")),
+                ("Ctrl+N / Ctrl+P", tr!("Next / previous chat", "Próxima / anterior conversa")),
+                ("Ctrl+K / /", tr!("Search chats and messages", "Pesquisar conversas e mensagens")),
+                ("1 2 3 4", tr!("All, Unread, Favorites, Groups", "Tudo, Não lidas, Favoritas, Grupos")),
+                ("Esc", tr!("Clear the search", "Limpar a pesquisa")),
+                ("Esc / ← / h", tr!("Leave archived", "Sair das arquivadas")),
             ],
         ),
         (
-            "Conversa",
+            tr!("Chat", "Conversa"),
             vec![
-                ("Tab", "Da lista para a mensagem"),
-                ("m", "Menu da conversa"),
-                ("i", "Dados do contato ou grupo"),
-                ("I", "Foto do contato ou grupo"),
-                ("Esc", "Fechar os dados"),
-                ("Espaço", "Tocar ou pausar o último áudio"),
-                ("v", "Abrir o último vídeo"),
-                ("PgUp PgDn", "Rolar a conversa"),
+                ("Tab", tr!("From the list to the message", "Da lista para a mensagem")),
+                ("m", tr!("Chat menu", "Menu da conversa")),
+                ("i", tr!("Contact or group info", "Dados do contato ou grupo")),
+                ("I", tr!("Contact or group photo", "Foto do contato ou grupo")),
+                ("Esc", tr!("Close the info", "Fechar os dados")),
+                (tr!("Space", "Espaço"), tr!("Play or pause the last audio", "Tocar ou pausar o último áudio")),
+                ("v", tr!("Open the last video", "Abrir o último vídeo")),
+                ("PgUp PgDn", tr!("Scroll the chat", "Rolar a conversa")),
             ],
         ),
         (
-            "Fotos e vídeos",
+            tr!("Photos and videos", "Fotos e vídeos"),
             vec![
-                ("Espaço / Enter", "Tocar ou parar o vídeo"),
-                ("b", "Baixar para a pasta Downloads"),
-                ("p", "Baixar e mostrar na pasta"),
-                ("o", "Abrir fora do app"),
-                ("Esc / q", "Fechar"),
+                (tr!("Space / Enter", "Espaço / Enter"), tr!("Play or stop the video", "Tocar ou parar o vídeo")),
+                ("b", tr!("Download to the Downloads folder", "Baixar para a pasta Downloads")),
+                ("p", tr!("Download and show in folder", "Baixar e mostrar na pasta")),
+                ("o", tr!("Open outside the app", "Abrir fora do app")),
+                ("Esc / q", tr!("Close", "Fechar")),
             ],
         ),
         (
-            "Mensagem",
+            tr!("Message", "Mensagem"),
             vec![
-                (send, "Enviar"),
-                (newline, "Quebrar linha"),
-                (":", "Emoji pelo nome"),
-                ("Alt+E", "Painel de emojis"),
-                ("Alt+A", "Anexar"),
-                ("Ctrl+V", "Colar imagem ou arquivos"),
-                ("Ctrl+W", "Apagar a palavra anterior"),
-                ("Ctrl+U", "Apagar a mensagem"),
-                ("↑", "Editar a última mensagem enviada"),
-                ("Alt+R", "Responder à última; de novo, à anterior"),
-                ("Esc", "Cancelar a resposta"),
-                ("Esc / Tab", "Voltar para a lista"),
+                (send, tr!("Send", "Enviar")),
+                (newline, tr!("New line", "Quebrar linha")),
+                (":", tr!("Emoji by name", "Emoji pelo nome")),
+                ("Alt+E", tr!("Emoji panel", "Painel de emojis")),
+                ("Alt+A", tr!("Attach", "Anexar")),
+                ("Ctrl+V", tr!("Paste image or files", "Colar imagem ou arquivos")),
+                ("Ctrl+W", tr!("Delete the previous word", "Apagar a palavra anterior")),
+                ("Ctrl+U", tr!("Delete the message", "Apagar a mensagem")),
+                ("↑", tr!("Edit the last message sent", "Editar a última mensagem enviada")),
+                ("Alt+R", tr!("Reply to the last one; again, to the one before", "Responder à última; de novo, à anterior")),
+                ("Esc", tr!("Cancel the reply", "Cancelar a resposta")),
+                ("Esc / Tab", tr!("Back to the list", "Voltar para a lista")),
             ],
         ),
         (
-            "Selecionar e encaminhar",
+            tr!("Select and forward", "Selecionar e encaminhar"),
             vec![
-                ("↑ ↓ / k j", "Mover entre as mensagens"),
-                ("Espaço", "Marcar ou desmarcar a mensagem"),
-                ("Enter", "Encaminhar (ou apagar) as marcadas"),
-                ("Esc", "Sair da seleção"),
-                ("Ctrl+C", "Copiar as marcadas, ou o texto selecionado"),
-                ("Enter", "Marcar a conversa, ao encaminhar"),
-                ("Alt+Enter / Ctrl+Enter", "Encaminhar para as marcadas"),
+                ("↑ ↓ / k j", tr!("Move between messages", "Mover entre as mensagens")),
+                (tr!("Space", "Espaço"), tr!("Select or deselect the message", "Marcar ou desmarcar a mensagem")),
+                ("Enter", tr!("Forward (or delete) the selected", "Encaminhar (ou apagar) as marcadas")),
+                ("Esc", tr!("Leave selection", "Sair da seleção")),
+                ("Ctrl+C", tr!("Copy the selected, or the highlighted text", "Copiar as marcadas, ou o texto selecionado")),
+                ("Enter", tr!("Select the chat, when forwarding", "Marcar a conversa, ao encaminhar")),
+                ("Alt+Enter / Ctrl+Enter", tr!("Forward to the selected", "Encaminhar para as marcadas")),
             ],
         ),
         (
-            "Formatação",
+            tr!("Formatting", "Formatação"),
             vec![
-                ("Ctrl+B / Alt+B", "Negrito"),
-                ("Ctrl+I / Alt+I", "Itálico"),
-                ("Ctrl+Shift+X / Alt+X", "Tachado"),
-                ("Ctrl+Shift+M / Alt+M", "Monoespaçado"),
-                ("Ctrl+Shift+C / Alt+C", "Código"),
-                ("Ctrl+Shift+9", "Citação"),
+                ("Ctrl+B / Alt+B", tr!("Bold", "Negrito")),
+                ("Ctrl+I / Alt+I", tr!("Italic", "Itálico")),
+                ("Ctrl+Shift+X / Alt+X", tr!("Strikethrough", "Tachado")),
+                ("Ctrl+Shift+M / Alt+M", tr!("Monospace", "Monoespaçado")),
+                ("Ctrl+Shift+C / Alt+C", tr!("Code", "Código")),
+                ("Ctrl+Shift+9", tr!("Quote", "Citação")),
             ],
         ),
         (
             "App",
             vec![
-                ("Alt+S / ,", "Menu da conta"),
-                ("Ctrl+/ / ?", "Atalhos de teclado"),
-                ("↑ ↓ Enter Esc", "Mover, escolher e fechar nos menus"),
-                ("Ctrl+O", "Reiniciar na versão instalada"),
-                ("q / Ctrl+C", "Sair"),
+                ("Alt+S / ,", tr!("Account menu", "Menu da conta")),
+                ("Ctrl+/ / ?", tr!("Keyboard shortcuts", "Atalhos de teclado")),
+                ("↑ ↓ Enter Esc", tr!("Move, choose and close in menus", "Mover, escolher e fechar nos menus")),
+                ("Ctrl+O", tr!("Restart into the installed version", "Reiniciar na versão instalada")),
+                ("q / Ctrl+C", tr!("Quit", "Sair")),
             ],
         ),
     ]
@@ -220,7 +220,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         .collect();
     let content_w = cols.iter().map(Column::width).sum::<u16>() + GAP * (cols.len() as u16 - 1);
     // A blank row on top; under the keys, a blank row and the hint.
-    let (_, inner) = crate::account::dialog(f, app, content_w + 5, body.len() as u16 + 5, " Atalhos de teclado ");
+    let (_, inner) = crate::account::dialog(f, app, content_w + 5, body.len() as u16 + 5, tr!(" Keyboard shortcuts ", " Atalhos de teclado "));
     let shown = inner.height.saturating_sub(3);
     let max = (body.len() as u16).saturating_sub(shown);
     let top = top.min(max);
@@ -229,8 +229,11 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     let rows: Vec<Line> = body.into_iter().skip(top as usize).take(shown as usize).collect();
     f.render_widget(Paragraph::new(rows), Rect { y: inner.y + 1, height: shown, ..inner });
     let hint = match (top > 0, top < max) {
-        (false, false) => " Esc fecha".to_string(),
-        (up, down) => format!(" {} ↑↓ rola · Esc fecha", if up && down { "▲▼" } else if up { "▲" } else { "▼" }),
+        (false, false) => tr!(" Esc closes", " Esc fecha").to_string(),
+        (up, down) => {
+            let arrows = if up && down { "▲▼" } else if up { "▲" } else { "▼" };
+            tr!(format!(" {arrows} ↑↓ scrolls · Esc closes"), format!(" {arrows} ↑↓ rola · Esc fecha"))
+        }
     };
     let foot = Rect { y: inner.bottom().saturating_sub(1), height: 1, ..inner };
     f.render_widget(Paragraph::new(hint).style(dim()), foot);

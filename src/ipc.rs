@@ -1,4 +1,4 @@
-//! One whatsapp-tui per session. The first one holds a lock in the runtime
+//! One whatstui per session. The first one holds a lock in the runtime
 //! dir and listens on a Unix socket next to it; a later one finds the lock
 //! taken, hands the running one what it was asked and exits. The socket
 //! speaks JSON lines (`{"cmd":"open","chat":"…"}`), so scripts and the
@@ -14,7 +14,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// What another process asks the running whatsapp-tui to do.
+/// What another process asks the running whatstui to do.
 pub enum Cmd {
     /// Bring the window to the front.
     Focus,
@@ -49,7 +49,7 @@ impl Cmd {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/whatsapp-tui`, a private tmpfs that goes away with the
+/// `$XDG_RUNTIME_DIR/whatstui`, a private tmpfs that goes away with the
 /// session; the cache folder when there is none.
 pub fn dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
@@ -59,17 +59,17 @@ pub fn dir() -> PathBuf {
 }
 
 fn address() -> PathBuf {
-    dir().join("whatsapp-tui.sock")
+    dir().join("whatstui.sock")
 }
 
 fn lock_path() -> PathBuf {
-    dir().join("whatsapp-tui.lock")
+    dir().join("whatstui.lock")
 }
 
 pub enum Claim {
     /// We are the one; `serve` starts answering the others.
     Owner(Server),
-    /// Another whatsapp-tui holds the lock.
+    /// Another whatstui holds the lock.
     Running,
 }
 
@@ -86,7 +86,7 @@ fn make_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Whether some whatsapp-tui holds the lock right now.
+/// Whether some whatstui holds the lock right now.
 pub fn running() -> bool {
     let Ok(lock) = File::options().create(true).truncate(false).write(true).open(lock_path()) else { return false };
     matches!(lock.try_lock(), Err(TryLockError::WouldBlock))
@@ -148,7 +148,7 @@ pub fn broadcast(line: &str) {
     subs.retain_mut(|s| writeln!(s, "{line}").and_then(|_| s.flush()).is_ok());
 }
 
-/// A connection to the running whatsapp-tui. The lock can be taken a moment
+/// A connection to the running whatstui. The lock can be taken a moment
 /// before the socket is up, so a refused connection gets a few more tries.
 pub fn connect() -> std::io::Result<UnixStream> {
     let mut tries = 0;
@@ -164,14 +164,14 @@ pub fn connect() -> std::io::Result<UnixStream> {
     }
 }
 
-/// Sends one command to the running whatsapp-tui.
+/// Sends one command to the running whatstui.
 pub fn send(cmd: &serde_json::Value) -> std::io::Result<()> {
     let mut conn = connect()?;
     writeln!(conn, "{cmd}")?;
     conn.flush()
 }
 
-/// Prints the running whatsapp-tui's events, one JSON line each, until
+/// Prints the running whatstui's events, one JSON line each, until
 /// stdout goes away. Waits for it when it isn't running, and again after it quits.
 pub fn follow() -> i32 {
     let mut out = std::io::stdout();

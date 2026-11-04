@@ -19,8 +19,12 @@ import (
 )
 
 // What a message whose content wasn't kept reads as: textOf's labels, not
-// text to send again.
-var labels = []string{"📷 Foto", "🎥 Vídeo", "🎤 Áudio", "📄 ", "💟 Figurinha", "👤 ", "📍 Localização", "📊 "}
+// text to send again. In both languages: the database keeps what earlier
+// runs wrote, in whichever one they ran in.
+var labels = []string{
+	"📷 Photo", "📷 Foto", "🎥 Video", "🎥 Vídeo", "🎤 Audio", "🎤 Áudio", "📄 ",
+	"💟 Sticker", "💟 Figurinha", "👤 ", "📍 Location", "📍 Live location", "📍 Localização", "📊 ",
+}
 
 // fwdMsg is one message to forward: what goes, and the original's place.
 type fwdMsg struct {
@@ -45,7 +49,7 @@ func (b *Bridge) fwdContent(chat, id string) *fwdMsg {
 		Scan(&text, &card, &score, &ts, &kind, &mime, &blob) != nil {
 		return nil
 	}
-	if card != "" || text == revokedMine || text == revokedOthers {
+	if card != "" || isRevoked(text) {
 		return nil
 	}
 	f := &fwdMsg{id: id, ts: ts, score: uint32(score), mime: mime}
@@ -58,7 +62,7 @@ func (b *Bridge) fwdContent(chat, id string) *fwdMsg {
 		f.part = part
 		return f
 	}
-	text = strings.TrimSuffix(text, editedMark)
+	text = trimEdited(text)
 	for _, l := range labels {
 		if strings.HasPrefix(text, l) {
 			return nil
@@ -104,7 +108,7 @@ func (b *Bridge) forward(chat string, ids, to []string) {
 		}
 	}
 	if len(msgs) < len(ids) {
-		emit(map[string]any{"t": "error", "text": "Algumas mensagens não podem ser encaminhadas"})
+		emit(map[string]any{"t": "error", "text": tr("Some messages can't be forwarded", "Algumas mensagens não podem ser encaminhadas")})
 	}
 	if len(msgs) == 0 {
 		return
@@ -152,7 +156,7 @@ func (b *Bridge) forward(chat string, ids, to []string) {
 	b.dirty.Store(true)
 	for _, o := range outs {
 		if _, err := b.cli.SendMessage(b.ctx, o.jid, o.msg, whatsmeow.SendRequestExtra{ID: o.id}); err != nil {
-			emit(map[string]any{"t": "error", "text": "não encaminhou: " + err.Error()})
+			emit(map[string]any{"t": "error", "text": tr("couldn't forward: ", "não encaminhou: ") + err.Error()})
 			continue
 		}
 		b.setStatus(o.jid, []types.MessageID{o.id}, 1)
@@ -187,7 +191,7 @@ func (b *Bridge) chatSubs() {
 				names = names[:30]
 			}
 			if you {
-				names = append(names, "Você")
+				names = append(names, tr("You", "Você"))
 			}
 			subs[g.JID.String()] = strings.Join(names, ", ")
 		}

@@ -45,8 +45,14 @@ enum Act {
     Delete,
 }
 
-/// "Silenciar notificações" for: seconds, 0 for always.
-const MUTES: [(i64, &str); 3] = [(8 * 3600, "8 horas"), (7 * 24 * 3600, "1 semana"), (0, "Sempre")];
+/// "Silenciar notificações" for: seconds, 0 for always; the label in
+/// English and in Portuguese (`mute_label`).
+const MUTES: [(i64, &str, &str); 3] = [(8 * 3600, "8 hours", "8 horas"), (7 * 24 * 3600, "1 week", "1 semana"), (0, "Always", "Sempre")];
+
+fn mute_label(i: usize) -> &'static str {
+    let (_, en, pt) = MUTES[i];
+    tr!(en, pt)
+}
 
 pub struct Popup {
     pub jid: String,
@@ -86,20 +92,20 @@ fn acts(c: &Chat) -> Vec<Act> {
 /// Its icon, label and what goes at the right, flipped by the chat's state.
 fn label(a: Act, c: &Chat, confirm: bool) -> (&'static str, &'static str, &'static str) {
     match a {
-        Act::Archive if c.archived => (ARCHIVE, "Desarquivar conversa", ""),
-        Act::Archive => (ARCHIVE, "Arquivar conversa", ""),
-        Act::Pin if c.pinned => (UNPIN, "Desafixar conversa", ""),
-        Act::Pin => (PINNED, "Fixar conversa", ""),
-        Act::Read if c.unread > 0 => (READ, "Marcar como lida", ""),
-        Act::Read => (UNREAD, "Marcar como não lida", ""),
-        Act::Mute if c.muted => (BELL, "Reativar notificações", ""),
-        Act::Mute => (MUTED, "Silenciar notificações", "›"),
-        Act::Favorite if c.favorite => (UNHEART, "Remover dos Favoritos", ""),
-        Act::Favorite => (HEART, "Adicionar aos Favoritos", ""),
-        Act::Clear if confirm => (ERASE, "Limpar? Enter confirma", ""),
-        Act::Clear => (ERASE, "Limpar conversa", ""),
-        Act::Delete if confirm => (TRASH, "Apagar? Enter confirma", ""),
-        Act::Delete => (TRASH, "Apagar conversa", ""),
+        Act::Archive if c.archived => (ARCHIVE, tr!("Unarchive chat", "Desarquivar conversa"), ""),
+        Act::Archive => (ARCHIVE, tr!("Archive chat", "Arquivar conversa"), ""),
+        Act::Pin if c.pinned => (UNPIN, tr!("Unpin chat", "Desafixar conversa"), ""),
+        Act::Pin => (PINNED, tr!("Pin chat", "Fixar conversa"), ""),
+        Act::Read if c.unread > 0 => (READ, tr!("Mark as read", "Marcar como lida"), ""),
+        Act::Read => (UNREAD, tr!("Mark as unread", "Marcar como não lida"), ""),
+        Act::Mute if c.muted => (BELL, tr!("Unmute notifications", "Reativar notificações"), ""),
+        Act::Mute => (MUTED, tr!("Mute notifications", "Silenciar notificações"), "›"),
+        Act::Favorite if c.favorite => (UNHEART, tr!("Remove from Favorites", "Remover dos Favoritos"), ""),
+        Act::Favorite => (HEART, tr!("Add to Favorites", "Adicionar aos Favoritos"), ""),
+        Act::Clear if confirm => (ERASE, tr!("Clear? Enter confirms", "Limpar? Enter confirma"), ""),
+        Act::Clear => (ERASE, tr!("Clear chat", "Limpar conversa"), ""),
+        Act::Delete if confirm => (TRASH, tr!("Delete? Enter confirms", "Apagar? Enter confirma"), ""),
+        Act::Delete => (TRASH, tr!("Delete chat", "Apagar conversa"), ""),
         Act::Sep => ("", "", ""),
     }
 }
@@ -161,7 +167,7 @@ impl App {
             Act::Sep => close = false,
             Act::Archive => self.act(&jid, if c.archived { "unarchive" } else { "archive" }, json!({})),
             Act::Pin if !c.pinned && self.chats.iter().filter(|x| x.pinned).count() >= MAX_PINNED => {
-                self.note("Você só pode fixar até 3 conversas");
+                self.note(tr!("You can only pin up to 3 chats", "Você só pode fixar até 3 conversas"));
             }
             Act::Pin => self.act(&jid, if c.pinned { "unpin" } else { "pin" }, json!({})),
             Act::Read if c.unread > 0 => {
@@ -397,21 +403,20 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 /// The mute choices beside the menu, at its row; on the left when the right has no room.
 fn draw_sub(f: &mut Frame, app: &mut App, main: Rect, row_y: u16, sel: usize) {
     let screen = f.area();
-    let w = MUTES.iter().map(|(_, l)| l.width()).max().unwrap_or(0) as u16 + 8;
+    let w = (0..MUTES.len()).map(|i| mute_label(i).width()).max().unwrap_or(0) as u16 + 8;
     let h = MUTES.len() as u16 + 2;
     let x = if main.right() + w <= screen.right() { main.right() } else { main.x.saturating_sub(w) };
     let y = row_y.saturating_sub(1).min(screen.bottom().saturating_sub(h)).max(screen.y);
     let area = Rect::new(x, y, w, h).intersection(screen);
-    let lines: Vec<Line> = MUTES
-        .iter()
-        .enumerate()
-        .map(|(i, (_, text))| {
+    let lines: Vec<Line> = (0..MUTES.len())
+        .map(|i| {
+            let text = mute_label(i);
             let row = if i == sel { Style::new().bg(MENU_HOVER) } else { Style::new().bg(MENU_BG) };
             let pad = (w as usize).saturating_sub(4 + text.width());
             Line::from(vec![
                 Span::styled(" ", Style::new().bg(MENU_BG)),
                 Span::styled("  ", row),
-                Span::styled(*text, row.fg(TEXT)),
+                Span::styled(text, row.fg(TEXT)),
                 Span::styled(" ".repeat(pad), row),
                 Span::styled(" ", Style::new().bg(MENU_BG)),
             ])

@@ -86,10 +86,11 @@ pub fn cells(md: &Media, (cw, ch): (u32, u32), room: usize) -> (usize, usize) {
     (cols.clamp(LEAST_COLS.min(most), most), rows.max(LEAST_ROWS))
 }
 
-/// The text under the picture: the caption, without the "🎥 Vídeo" the
-/// chat list reads.
+/// The text under the picture: the caption, without the "🎥 Video" the
+/// chat list reads (in either language: the helper's, or a message stored
+/// before a switch).
 pub fn caption(m: &Msg) -> &str {
-    for label in ["🎥 Vídeo", "📷 Foto"] {
+    for label in ["🎥 Video", "📷 Photo", "🎥 Vídeo", "📷 Foto"] {
         if let Some(rest) = m.text.strip_prefix(label) {
             if rest.is_empty() || rest.starts_with(" · ") {
                 return rest.trim_start_matches(" · ");

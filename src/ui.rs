@@ -563,14 +563,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             let code = code.clone();
             qr_view(f, app, &code, area)
         }
-        Phase::LoggedOut if app.account.signing_out => center(f, area, vec![Line::from("Aparelho desconectado. Gerando um QR novo…")]),
-        Phase::LoggedOut => center(f, area, vec![Line::from("Sessão encerrada no celular. Gerando um QR novo…")]),
+        Phase::LoggedOut if app.account.signing_out => center(f, area, vec![Line::from(tr!("Device logged out. Generating a new QR…", "Aparelho desconectado. Gerando um QR novo…"))]),
+        Phase::LoggedOut => center(f, area, vec![Line::from(tr!("Logged out on the phone. Generating a new QR…", "Sessão encerrada no celular. Gerando um QR novo…"))]),
         Phase::Dead(why) => center(
             f,
             area,
-            vec![Line::from(why.clone()).red(), Line::default(), Line::from("r reinicia · q sai").style(dim())],
+            vec![Line::from(why.clone()).red(), Line::default(), Line::from(tr!("r restarts · q quits", "r reinicia · q sai")).style(dim())],
         ),
-        _ => center(f, area, vec![Line::from(vec![Span::styled("WhatsApp TUI", Style::new().fg(green()).bold()), Span::raw("  conectando ao WhatsApp…")])]),
+        _ => center(f, area, vec![Line::from(vec![Span::styled("WhatsTUI", Style::new().fg(green()).bold()), Span::raw(tr!("  connecting to WhatsApp…", "  conectando ao WhatsApp…"))])]),
     }
 }
 
@@ -582,7 +582,7 @@ fn center(f: &mut Frame, area: Rect, lines: Vec<Line>) {
 
 fn qr_view(f: &mut Frame, app: &mut App, code: &str, area: Rect) {
     let Ok(qr) = qrcode::QrCode::new(code.as_bytes()) else {
-        return center(f, area, vec![Line::from("QR inválido")]);
+        return center(f, area, vec![Line::from(tr!("Invalid QR", "QR inválido"))]);
     };
     const QUIET: usize = 2;
     let w = qr.width();
@@ -592,21 +592,24 @@ fn qr_view(f: &mut Frame, app: &mut App, code: &str, area: Rect) {
         x >= QUIET && y >= QUIET && x < w + QUIET && y < w + QUIET && colors[(y - QUIET) * w + (x - QUIET)] == qrcode::Color::Dark
     };
     let text = [
-        Line::from("Escaneie com o WhatsApp do celular").bold(),
-        Line::from("Configurações › Aparelhos conectados › Conectar um aparelho").style(dim()),
-        Line::from("q sai").style(dim()),
+        Line::from(tr!("Scan with WhatsApp on your phone", "Escaneie com o WhatsApp do celular")).bold(),
+        Line::from(tr!("Settings › Linked devices › Link a device", "Configurações › Aparelhos conectados › Conectar um aparelho")).style(dim()),
+        Line::from(tr!("q quits", "q sai")).style(dim()),
     ];
     if qr_picture(f, app, code, total, &dark, area, &text) {
         return;
     }
     let rows = total.div_ceil(2);
     let text = [
-        Line::from("Escaneie com o WhatsApp do celular").bold(),
-        Line::from("Configurações › Aparelhos conectados › Conectar um aparelho").style(dim()),
-        Line::from("q sai").style(dim()),
+        Line::from(tr!("Scan with WhatsApp on your phone", "Escaneie com o WhatsApp do celular")).bold(),
+        Line::from(tr!("Settings › Linked devices › Link a device", "Configurações › Aparelhos conectados › Conectar um aparelho")).style(dim()),
+        Line::from(tr!("q quits", "q sai")).style(dim()),
     ];
     if (area.width as usize) < total || (area.height as usize) < rows + text.len() + 1 {
-        return center(f, area, vec![Line::from(format!("Aumente o terminal para mostrar o QR (precisa de {total}×{}).", rows + 4))]);
+        return center(f, area, vec![Line::from(tr!(
+            format!("Make the terminal bigger to show the QR (needs {total}×{}).", rows + 4),
+            format!("Aumente o terminal para mostrar o QR (precisa de {total}×{}).", rows + 4)
+        ))]);
     }
     // Two modules per cell, in the terminal's own colors: its text's for the
     // light ones, its background for the dark.
@@ -790,7 +793,7 @@ fn sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let inside = (field_w + 2).saturating_sub(2 * cap);
     let searching = app.focus == Focus::Search;
     let (text, fg) = if app.search.is_empty() && !searching {
-        ("Pesquisar ou começar uma nova conversa".to_string(), META_IN)
+        (tr!("Search or start a new chat", "Pesquisar ou começar uma nova conversa").to_string(), META_IN)
     } else {
         (app.search.clone(), TEXT)
     };
@@ -807,10 +810,10 @@ fn sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     // The chips: All, Unread, Favorites, Groups. Unread counts the list shown.
     let unread = app.chats.iter().filter(|c| c.unread > 0 && c.archived == app.archived).count();
     let chips = [
-        (Filter::All, "Tudo".to_string()),
-        (Filter::Unread, if unread > 0 { format!("Não lidas {unread}") } else { "Não lidas".into() }),
-        (Filter::Favorites, "Favoritas".into()),
-        (Filter::Groups, "Grupos".into()),
+        (Filter::All, tr!("All", "Tudo").to_string()),
+        (Filter::Unread, if unread > 0 { tr!(format!("Unread {unread}"), format!("Não lidas {unread}")) } else { tr!("Unread", "Não lidas").into() }),
+        (Filter::Favorites, tr!("Favorites", "Favoritas").into()),
+        (Filter::Groups, tr!("Groups", "Grupos").into()),
     ];
     let mut chip_spans = vec![Span::raw(" ")];
     let mut x = area.x + 1;
@@ -854,7 +857,7 @@ fn sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let cells = avatar_cells(app).filter(|_| app.settings.on(crate::config::PHOTOS));
     let items = app.items();
     if items.is_empty() {
-        let msg = if app.filter == Filter::All && !app.archived { "Nenhuma conversa ainda" } else { "Nada encontrado" };
+        let msg = if app.filter == Filter::All && !app.archived { tr!("No chats yet", "Nenhuma conversa ainda") } else { tr!("Nothing found", "Nada encontrado") };
         f.render_widget(Paragraph::new(format!(" {msg}")).style(Style::new().fg(META_IN)), list);
         return;
     }
@@ -907,9 +910,9 @@ fn sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                 // How many archived chats wait, green while any does.
                 let n = app.chats.iter().filter(|c| c.archived && c.unread > 0).count();
                 let count = Span::styled(n.to_string(), Style::new().fg(if n > 0 { green() } else { META_IN }));
-                lines.push(lead_row(crate::chatmenu::ARCHIVE, Span::styled("Arquivadas", Style::new().fg(TEXT)), Some(count), width, avatar_w, on));
+                lines.push(lead_row(crate::chatmenu::ARCHIVE, Span::styled(tr!("Archived", "Arquivadas"), Style::new().fg(TEXT)), Some(count), width, avatar_w, on));
             }
-            Item::Back => lines.push(lead_row("←", Span::styled("Arquivadas", Style::new().fg(TEXT).bold()), None, width, avatar_w, on)),
+            Item::Back => lines.push(lead_row("←", Span::styled(tr!("Archived", "Arquivadas"), Style::new().fg(TEXT).bold()), None, width, avatar_w, on)),
             Item::Chat(c) => {
                 lines.extend(chat_item(c, width, avatar_w, on, app.typing.contains_key(&c.jid), app.draft_line(&c.jid)));
                 pictures.push((y, c.jid.clone(), c.group));
@@ -925,9 +928,9 @@ fn sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             }
             Item::Number(n) => {
                 let (sub, style) = if n.exists {
-                    ("Começar uma conversa", Style::new().fg(green()))
+                    (tr!("Start a chat", "Começar uma conversa"), Style::new().fg(green()))
                 } else {
-                    ("Este número não está no WhatsApp", Style::new().fg(META_IN))
+                    (tr!("This number isn't on WhatsApp", "Este número não está no WhatsApp"), Style::new().fg(META_IN))
                 };
                 lines.extend(contact_item(&phone(&n.jid), sub, style, width, avatar_w, on));
                 pictures.push((y, n.jid.clone(), false));
@@ -1148,10 +1151,10 @@ fn chat_item(c: &Chat, width: usize, avatar: Option<u16>, lit: bool, typing: boo
     let mut left: Vec<Span> = vec![Span::raw(lead)];
     let room = inner.saturating_sub(right_w + 1);
     if typing {
-        left.push(Span::styled(truncate("digitando…", room), Style::new().fg(green())));
+        left.push(Span::styled(truncate(tr!("typing…", "digitando…"), room), Style::new().fg(green())));
     } else if let Some(d) = draft {
         // What was left unsent, in place of the last message, as on the Web.
-        let label = "Rascunho: ";
+        let label = tr!("Draft: ", "Rascunho: ");
         left.push(Span::styled(truncate(label, room), Style::new().fg(green()).bold()));
         left.push(Span::styled(truncate(&d, room.saturating_sub(label.width())), Style::new().fg(META_IN)));
     } else {
@@ -1195,10 +1198,10 @@ fn conversation(f: &mut Frame, app: &mut App, area: Rect) {
             f,
             area,
             vec![
-                Line::from("WhatsApp TUI").fg(green()).bold(),
+                Line::from("WhatsTUI").fg(green()).bold(),
                 Line::default(),
-                Line::from("Escolha uma conversa à esquerda").style(dim()),
-                Line::from("↑↓ navega · Enter abre · / busca · ? atalhos").style(dim()),
+                Line::from(tr!("Pick a chat on the left", "Escolha uma conversa à esquerda")).style(dim()),
+                Line::from(tr!("↑↓ move · Enter opens · / search · ? shortcuts", "↑↓ navega · Enter abre · / busca · ? atalhos")).style(dim()),
             ],
         );
     };
@@ -1238,11 +1241,11 @@ fn conversation(f: &mut Frame, app: &mut App, area: Rect) {
     let name = display_name(&app.name_of(&jid).unwrap_or_else(|| phone(&jid)), &jid);
     let number = phone(&jid);
     let sub = match app.typing.get(&jid) {
-        Some((who, _)) if group => Span::styled(format!("{who} está digitando…"), Style::new().fg(green())),
-        Some(_) => Span::styled("digitando…", Style::new().fg(green())),
-        None if jid == "0@s.whatsapp.net" => Span::styled("Conta oficial do WhatsApp", Style::new().fg(META_IN)),
-        None if group => Span::styled("clique para ver os dados do grupo", Style::new().fg(META_IN)),
-        None if name == number => Span::styled("clique para ver os dados do contato", Style::new().fg(META_IN)),
+        Some((who, _)) if group => Span::styled(tr!(format!("{who} is typing…"), format!("{who} está digitando…")), Style::new().fg(green())),
+        Some(_) => Span::styled(tr!("typing…", "digitando…"), Style::new().fg(green())),
+        None if jid == "0@s.whatsapp.net" => Span::styled(tr!("Official WhatsApp account", "Conta oficial do WhatsApp"), Style::new().fg(META_IN)),
+        None if group => Span::styled(tr!("click here for group info", "clique para ver os dados do grupo"), Style::new().fg(META_IN)),
+        None if name == number => Span::styled(tr!("click here for contact info", "clique para ver os dados do contato"), Style::new().fg(META_IN)),
         None => Span::styled(number, Style::new().fg(META_IN)),
     };
     // The check after the name, as WhatsApp Web marks itself and verified businesses.
@@ -1479,7 +1482,7 @@ fn input_box(f: &mut Frame, app: &mut App, area: Rect) {
             vec![Span::styled(" ".repeat(ICONS_W), field)]
         };
         let text = if app.input.is_empty() && i == 0 {
-            let hint = if focused { "Digite uma mensagem" } else { "Digite uma mensagem (Tab)" };
+            let hint = if focused { tr!("Type a message", "Digite uma mensagem") } else { tr!("Type a message (Tab)", "Digite uma mensagem (Tab)") };
             vec![Span::styled(hint, Style::new().fg(META_IN).bg(FIELD))]
         } else {
             crate::markup::typed_row(row, starts[first + i], &looks, field, CODE_IN, META_IN)
@@ -1684,7 +1687,7 @@ fn audio_rows(a: &Audio, now: Option<&Now>, from_me: bool, bg: Color, meta_fg: C
     top.push(Span::styled("─".repeat(track_w - 1 - knob), on(meta_fg)));
     top.push(blank(1));
     let time = match pos {
-        _ if !a.playable => "indisponível".to_string(),
+        _ if !a.playable => tr!("unavailable", "indisponível").to_string(),
         Some(p) => clock_secs(p),
         None => clock_secs(dur),
     };
@@ -1807,7 +1810,7 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
         }
         // Forwarded: WhatsApp's label in italics, over the rest.
         if m.forwarded > 0 {
-            let label = if m.forwarded >= crate::forward::OFTEN { "Encaminhada com frequência" } else { "Encaminhada" };
+            let label = if m.forwarded >= crate::forward::OFTEN { tr!("Forwarded many times", "Encaminhada com frequência") } else { tr!("Forwarded", "Encaminhada") };
             rows.push(vec![Span::styled(truncate(&format!("{} {label}", crate::forward::LABEL), inner), meta.add_modifier(Modifier::ITALIC))]);
         }
         // A quote in a box of its own, as WhatsApp Web's: a bar in its
@@ -1883,7 +1886,9 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
                 }
             }
             // "(editada)" is no text to select.
-            let len = text.chars().count().saturating_sub(if m.text.ends_with(crate::msgmenu::EDITED) { crate::msgmenu::EDITED.chars().count() } else { 0 });
+            // The edited mark, in either language.
+            let mark = m.text.chars().count() - crate::msgmenu::unedited(&m.text).chars().count();
+            let len = text.chars().count().saturating_sub(mark);
             let (mut text, mut found, mut map) = crate::markup::rows(&text, wrap, &looks, &at);
             // A long one cut on a row, "… Ler mais" under it, until that's clicked.
             if text.len() > MORE_ROWS + MORE_SLACK && !opened(&m.id) {
@@ -1895,8 +1900,9 @@ fn message_lines(msgs: &[Msg], width: usize, group: bool, faces: Option<u16>, ce
                 found.retain(|&(r, ..)| r < text.len());
                 map.truncate(text.len());
                 let dots = "… ";
-                more = Some((rows.len() + text.len(), dots.width(), "Ler mais".width(), full - text.len() - 1, full_w));
-                text.push(vec![Span::styled(dots, body), Span::styled("Ler mais", mention)]);
+                let read_more = tr!("Read more", "Ler mais");
+                more = Some((rows.len() + text.len(), dots.width(), read_more.width(), full - text.len() - 1, full_w));
+                text.push(vec![Span::styled(dots, body), Span::styled(read_more, mention)]);
             }
             pieces.extend(found.into_iter().map(|(r, c, w, url)| (rows.len() + r, c, w, url)));
             glyphs = map.into_iter().enumerate().map(|(r, cells)| (rows.len() + r, cells.into_iter().filter(|c| c.2 < len).collect())).collect();
@@ -2077,19 +2083,21 @@ fn place_text(m: &Msg, map: bool) -> Option<(String, usize)> {
 fn call_line(c: &crate::bridge::Call, from_me: bool, time: &str, width: usize) -> Line<'static> {
     let missed = c.outcome == "missed" && !from_me;
     let icon = if c.video { VIDEO_CALL_ICON } else { CALL_ICON };
-    let mut what = String::from(if c.video { "Chamada de vídeo" } else { "Ligação de voz" });
-    if c.group {
-        what.push_str(" em grupo");
-    }
+    let what = match (c.video, c.group) {
+        (true, true) => tr!("Group video call", "Chamada de vídeo em grupo"),
+        (true, false) => tr!("Video call", "Chamada de vídeo"),
+        (false, true) => tr!("Group voice call", "Ligação de voz em grupo"),
+        (false, false) => tr!("Voice call", "Ligação de voz"),
+    };
     let note = match c.outcome.as_str() {
         "answered" if c.secs > 0 => call_length(c.secs),
-        "answered" => "Atendida".into(),
-        "elsewhere" => "Atendida em outro dispositivo".into(),
-        "missed" if from_me => "Não atendida".into(),
-        "missed" => "Perdida".into(),
-        "rejected" => "Recusada".into(),
-        "unanswered" => "Não atendida".into(),
-        "ongoing" => "Em andamento".into(),
+        "answered" => tr!("Answered", "Atendida").into(),
+        "elsewhere" => tr!("Answered on another device", "Atendida em outro dispositivo").into(),
+        "missed" if from_me => tr!("No answer", "Não atendida").into(),
+        "missed" => tr!("Missed", "Perdida").into(),
+        "rejected" => tr!("Declined", "Recusada").into(),
+        "unanswered" => tr!("No answer", "Não atendida").into(),
+        "ongoing" => tr!("Ongoing", "Em andamento").into(),
         _ => String::new(),
     };
     let head = format!(" {icon} ");
@@ -2108,10 +2116,11 @@ fn call_line(c: &crate::bridge::Call, from_me: bool, time: &str, width: usize) -
     ])
 }
 
-/// A call's length, as WhatsApp words it: 19 segundos, 1 min 5 s, 1 h 2 min.
+/// A call's length, as WhatsApp words it: 19 seconds, 1 min 5 s, 1 h 2 min.
 fn call_length(secs: u64) -> String {
     if secs < 60 {
-        return format!("{secs} {}", if secs == 1 { "segundo" } else { "segundos" });
+        let unit = if secs == 1 { tr!("second", "segundo") } else { tr!("seconds", "segundos") };
+        return format!("{secs} {unit}");
     }
     let (h, m, s) = (secs / 3600, secs % 3600 / 60, secs % 60);
     match (h, m, s) {
@@ -2178,7 +2187,7 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
     let w = inner.width as usize;
 
     // The header, as tall as the conversation's so their rules line up.
-    let title = if group { "Dados do grupo" } else { "Dados do contato" };
+    let title = if group { tr!("Group info", "Dados do grupo") } else { tr!("Contact info", "Dados do contato") };
     f.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(" ✕   ", Style::new().fg(META_IN)), Span::styled(title, Style::new().fg(TEXT).bold())]))
             .block(Block::new().borders(Borders::BOTTOM).border_style(dim())),
@@ -2218,7 +2227,7 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
         None => {
             lines.push(center_line(display_name(&fallback, &chat), text.bold()));
             lines.push(Line::default());
-            lines.push(center_line("Carregando…".into(), meta));
+            lines.push(center_line(tr!("Loading…", "Carregando…").into(), meta));
         }
         Some(d) => {
             // A hidden number's (@lid) number, when the bridge knows it.
@@ -2227,7 +2236,8 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
             lines.push(center_line(name.clone(), text.bold()));
             let number = phone(&who);
             if group {
-                lines.push(center_line(format!("Grupo · {} membros", d.members.len()), meta));
+                let n = d.members.len();
+                lines.push(center_line(tr!(format!("Group · {n} {}", if n == 1 { "member" } else { "members" }), format!("Grupo · {n} membros")), meta));
             } else if !number.is_empty() && number != name {
                 lines.push(center_line(number, meta));
             }
@@ -2240,7 +2250,7 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
             // Open or not, as WhatsApp Web puts it: "Aberta até às 17:00".
             let open = (!d.hours.is_empty()).then(|| opening(&d.hours, d.tz));
             if let Some(o) = &open {
-                let (word, color) = if o.open { ("Aberta", green()) } else { ("Fechada", CLOSED) };
+                let (word, color) = if o.open { (tr!("Open", "Aberta"), green()) } else { (tr!("Closed", "Fechada"), CLOSED) };
                 let mut spans = vec![Span::styled(word, Style::new().fg(color))];
                 if !o.next.is_empty() {
                     spans.push(Span::styled(format!(" {}", o.next), meta));
@@ -2249,23 +2259,24 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
             }
             if !d.error.is_empty() {
                 lines.push(Line::default());
-                lines.push(center_line(format!("Não carregou: {}", d.error), Style::new().fg(Color::Red)));
+                lines.push(center_line(tr!(format!("Couldn't load: {}", d.error), format!("Não carregou: {}", d.error)), Style::new().fg(Color::Red)));
             }
 
             if group {
-                section(&mut lines, w, "Descrição", "");
+                section(&mut lines, w, tr!("Description", "Descrição"), "");
                 if d.about.trim().is_empty() {
-                    lines.push(Line::from(Span::styled("  Sem descrição", meta)));
+                    lines.push(Line::from(Span::styled(tr!("  No description", "  Sem descrição"), meta)));
                 } else {
                     paragraph(&mut lines, &d.about, text_w, "  ");
                 }
                 if d.created > 0 {
-                    section(&mut lines, w, "Criado em", "");
-                    lines.push(Line::from(Span::styled(format!("  {}", local(d.created).format("%d/%m/%Y às %H:%M")), text)));
+                    section(&mut lines, w, tr!("Created", "Criado em"), "");
+                    let when = local(d.created).format(tr!("%d/%m/%Y at %H:%M", "%d/%m/%Y às %H:%M"));
+                    lines.push(Line::from(Span::styled(format!("  {when}"), text)));
                 }
             }
             if d.biz {
-                section(&mut lines, w, "Conta comercial", INFO);
+                section(&mut lines, w, tr!("Business account", "Conta comercial"), INFO);
                 let before = lines.len();
                 // A blank row between the details, as WhatsApp Web spaces them.
                 let gap = |lines: &mut Vec<Line<'static>>| {
@@ -2286,9 +2297,9 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
                     gap(&mut lines);
                     week_row = Some(lines.len());
                     let (now, color) = match (o.always, o.open) {
-                        (true, _) => ("Aberta 24 horas", green()),
-                        (_, true) => ("Aberta agora", green()),
-                        _ => ("Fechada agora", CLOSED),
+                        (true, _) => (tr!("Open 24 hours", "Aberta 24 horas"), green()),
+                        (_, true) => (tr!("Open now", "Aberta agora"), green()),
+                        _ => (tr!("Closed now", "Fechada agora"), CLOSED),
                     };
                     let today = if o.always { String::new() } else { day_hours(&d.hours, o.day) };
                     let right = format!("{today}  {}", if view.week { UP } else { DOWN });
@@ -2301,7 +2312,7 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
                     ]));
                     if view.week {
                         for day in 0..7u8 {
-                            let mut name = DAYS[day as usize].chars();
+                            let mut name = day_name(day).chars();
                             let name: String = name.next().into_iter().flat_map(char::to_uppercase).chain(name).collect();
                             let hours = day_hours(&d.hours, day);
                             let style = if day == o.day { text.bold() } else { meta };
@@ -2319,7 +2330,7 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
                         lines.push(Line::from(Span::styled(format!("  {l}"), text)));
                     }
                     if !d.maps.is_empty() {
-                        lines.push(Line::from(Span::styled(format!("  {PIN} Abrir no Google Maps"), Style::new().fg(green()))));
+                        lines.push(Line::from(Span::styled(tr!(format!("  {PIN} Open in Google Maps"), format!("  {PIN} Abrir no Google Maps")), Style::new().fg(green()))));
                         maps_rows = Some((from, lines.len()));
                     }
                 }
@@ -2332,16 +2343,17 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
                     in_green(&mut lines, site);
                 }
                 if lines.len() == before {
-                    lines.push(Line::from(Span::styled("  Esta é uma conta comercial.", meta)));
+                    lines.push(Line::from(Span::styled(tr!("  This is a business account.", "  Esta é uma conta comercial."), meta)));
                 }
             }
             if !group && !d.about.trim().is_empty() {
-                section(&mut lines, w, "Recado", "");
+                section(&mut lines, w, tr!("About", "Recado"), "");
                 paragraph(&mut lines, &d.about, text_w, "  ");
             }
 
             if group && !d.members.is_empty() {
-                section(&mut lines, w, &format!("{} membros", d.members.len()), "");
+                let n = d.members.len();
+                section(&mut lines, w, &tr!(format!("{n} {}", if n == 1 { "member" } else { "members" }), format!("{n} membros")), "");
                 let avatar = avatar_cells(app).map(|(w, _)| w);
                 let lead = match avatar {
                     Some(a) => " ".repeat(a as usize + 4),
@@ -2350,10 +2362,10 @@ fn profile_panel(f: &mut Frame, app: &mut App, area: Rect, beside: bool) {
                 let room = w.saturating_sub(lead.width() + 2);
                 for m in &d.members {
                     let row = lines.len();
-                    let name = if m.me { "Você".to_string() } else { display_name(&m.name, &m.jid) };
+                    let name = if m.me { tr!("You", "Você").to_string() } else { display_name(&m.name, &m.jid) };
                     let number = phone(&m.jid);
                     let sub = if !m.me && number != name { number } else { String::new() };
-                    let tag = if m.admin { " Admin do grupo " } else { "" };
+                    let tag = if m.admin { tr!(" Group admin ", " Admin do grupo ") } else { "" };
                     let tag_w = if m.admin { tag.width() + 2 } else { 0 };
                     let name = truncate(&name, room.saturating_sub(tag_w + 1));
                     let gap = room.saturating_sub(name.width() + tag_w);
@@ -2451,13 +2463,13 @@ fn day_hours(hours: &[Hours], day: u8) -> String {
         .iter()
         .filter(|h| h.day == day)
         .map(|h| match h.mode.as_str() {
-            "open_24h" => "Aberta 24 horas".into(),
-            "appointment_only" => "Com agendamento".into(),
+            "open_24h" => tr!("Open 24 hours", "Aberta 24 horas").into(),
+            "appointment_only" => tr!("By appointment only", "Com agendamento").into(),
             _ => format!("{} - {}", clock(h.open), clock(h.close)),
         })
         .collect();
     if spans.is_empty() {
-        "Fechada".into()
+        tr!("Closed", "Fechada").into()
     } else {
         spans.join(", ")
     }
@@ -2478,13 +2490,13 @@ fn opening(hours: &[Hours], tz: Option<i32>) -> Opening {
     let end = |h: &Hours| if h.close <= h.open { h.close + 1440 } else { h.close };
     let timed = |h: &&Hours| h.mode != "open_24h" && h.mode != "appointment_only";
     if all_day(day) {
-        return Opening { open: true, always: false, next: "24 horas hoje".into(), day };
+        return Opening { open: true, always: false, next: tr!("24 hours today", "24 horas hoje").into(), day };
     }
     for h in hours.iter().filter(timed) {
         let today = h.day == day && min >= h.open && min < end(h);
         let from_yesterday = h.day == (day + 6) % 7 && end(h) > 1440 && min < end(h) - 1440;
         if today || from_yesterday {
-            return Opening { open: true, always: false, next: format!("até às {}", clock(h.close)), day };
+            return Opening { open: true, always: false, next: tr!(format!("until {}", clock(h.close)), format!("até às {}", clock(h.close))), day };
         }
     }
     // Closed: when it opens next, later today or on a coming day.
@@ -2499,10 +2511,10 @@ fn opening(hours: &[Hours], tz: Option<i32>) -> Opening {
         if let Some(o) = start {
             let when = match k {
                 0 => String::new(),
-                1 => "amanhã ".into(),
-                _ => format!("{} ", DAYS[d as usize]),
+                1 => tr!("tomorrow ", "amanhã ").into(),
+                _ => format!("{} ", day_name(d)),
             };
-            return Opening { open: false, always: false, next: format!("abre {when}às {}", clock(o)), day };
+            return Opening { open: false, always: false, next: tr!(format!("opens {when}at {}", clock(o)), format!("abre {when}às {}", clock(o))), day };
         }
     }
     Opening { open: false, always: false, next: String::new(), day }
@@ -2596,7 +2608,7 @@ fn short_time(ts: i64) -> String {
     let days = (Local::now().date_naive() - t.date_naive()).num_days();
     match days {
         0 => t.format("%H:%M").to_string(),
-        1 => "Ontem".into(),
+        1 => tr!("Yesterday", "Ontem").into(),
         2..=6 => weekday(t).into(),
         _ => t.format("%d/%m/%Y").to_string(),
     }
@@ -2605,17 +2617,32 @@ fn short_time(ts: i64) -> String {
 pub(crate) fn day_label(t: DateTime<Local>) -> String {
     let days = (Local::now().date_naive() - t.date_naive()).num_days();
     match days {
-        0 => "Hoje".into(),
-        1 => "Ontem".into(),
+        0 => tr!("Today", "Hoje").into(),
+        1 => tr!("Yesterday", "Ontem").into(),
         2..=6 => weekday(t).into(),
         _ => t.format("%d/%m/%Y").to_string(),
     }
 }
 
-const DAYS: [&str; 7] = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"];
+/// The week's days from Monday, in English and in Portuguese.
+const DAYS: [(&str, &str); 7] = [
+    ("Monday", "segunda-feira"),
+    ("Tuesday", "terça-feira"),
+    ("Wednesday", "quarta-feira"),
+    ("Thursday", "quinta-feira"),
+    ("Friday", "sexta-feira"),
+    ("Saturday", "sábado"),
+    ("Sunday", "domingo"),
+];
+
+/// A day's name, 0 for Monday.
+fn day_name(day: u8) -> &'static str {
+    let (en, pt) = DAYS[day as usize % 7];
+    tr!(en, pt)
+}
 
 fn weekday(t: DateTime<Local>) -> &'static str {
-    DAYS[t.weekday().num_days_from_monday() as usize]
+    day_name(t.weekday().num_days_from_monday() as u8)
 }
 
 /// `5511999990000@s.whatsapp.net` → `+55 11 99999-0000` (Brazilian numbers; others as they come).

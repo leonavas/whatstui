@@ -40,13 +40,13 @@ func setDone(what, text string, err error) {
 func (b *Bridge) setName(text string) {
 	name := strings.TrimSpace(text)
 	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
-		setDone("name", "", errors.New("nome inválido"))
+		setDone("name", "", errors.New(tr("invalid name", "nome inválido")))
 		return
 	}
 	// A business account's name is its business name, which only the phone
 	// changes (WhatsApp Web Business shows it read-only).
 	if b.cli.Store.BusinessName != "" {
-		setDone("name", "", errors.New("numa conta comercial o nome muda só no celular"))
+		setDone("name", "", errors.New(tr("on a business account the name can only be changed on the phone", "numa conta comercial o nome muda só no celular")))
 		return
 	}
 	ctx, cancel := context.WithTimeout(b.ctx, 20*time.Second)
@@ -75,7 +75,7 @@ func (b *Bridge) setName(text string) {
 func (b *Bridge) setAbout(text string) {
 	about := strings.TrimSpace(text)
 	if about == "" || utf8.RuneCountInString(about) > maxAboutLen {
-		setDone("about", "", errors.New("recado inválido"))
+		setDone("about", "", errors.New(tr("invalid about", "recado inválido")))
 		return
 	}
 	ctx, cancel := context.WithTimeout(b.ctx, 20*time.Second)
@@ -100,7 +100,7 @@ func (b *Bridge) setAbout(text string) {
 	}
 	if ts, ok := b.textStatus(ctx, b.me()); ok && ts.Text != about {
 		logf("set_about: the server kept %q (%s)", ts.Text, cutBytes(string(res), 200))
-		setDone("about", "", errors.New("não salvou"))
+		setDone("about", "", errors.New(tr("couldn't save", "não salvou")))
 		return
 	}
 	logf("set_about: ok")
@@ -117,7 +117,7 @@ func (b *Bridge) setPhoto(path string) {
 		os.Remove(path)
 		if err != nil || len(data) == 0 {
 			logf("set_photo: read: %v", err)
-			setDone("photo", "", errors.New("não leu a imagem"))
+			setDone("photo", "", errors.New(tr("couldn't read the image", "não leu a imagem")))
 			return
 		}
 		jpeg = data

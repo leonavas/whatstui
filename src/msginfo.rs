@@ -92,7 +92,7 @@ fn when(ts: i64) -> String {
         return "—".into();
     }
     let t = local(ts);
-    format!("{} às {}", day_label(t), t.format("%H:%M"))
+    tr!(format!("{} at {}", day_label(t), t.format("%H:%M")), format!("{} às {}", day_label(t), t.format("%H:%M")))
 }
 
 fn voice(m: &Msg) -> bool {
@@ -134,7 +134,10 @@ fn stage(lines: &mut Vec<Line<'static>>, w: usize, (icon, tint, label): (&'stati
         lines.push(row(w, vec![Span::styled("      ", bg), Span::styled(name, bg.fg(TEXT))], Some(Span::styled(time, bg.fg(META_IN)))));
     }
     if let Some(n) = remaining.filter(|&n| n > 0) {
-        let text = if n == 1 { "1 restante".to_string() } else { format!("{n} restantes") };
+        let text = match n {
+            1 => tr!("1 remaining", "1 restante").to_string(),
+            n => tr!(format!("{n} remaining"), format!("{n} restantes")),
+        };
         lines.push(row(w, vec![Span::styled("      ", bg), Span::styled(text, bg.fg(META_IN))], None));
     }
 }
@@ -157,9 +160,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let group = info.chat.ends_with("@g.us");
 
     // The title and the message, as a quote; these stay put.
-    let mut top_lines = vec![row(w, vec![Span::styled("   ", bg), Span::styled("Dados da mensagem", bg.fg(TEXT).add_modifier(Modifier::BOLD))], Some(Span::styled("Esc", bg.fg(META_IN))))];
+    let mut top_lines = vec![row(w, vec![Span::styled("   ", bg), Span::styled(tr!("Message info", "Dados da mensagem"), bg.fg(TEXT).add_modifier(Modifier::BOLD))], Some(Span::styled("Esc", bg.fg(META_IN))))];
     top_lines.push(row(w, Vec::new(), None));
-    let text = crate::markup::mentions(m.text.strip_suffix(crate::msgmenu::EDITED).unwrap_or(&m.text), &m.mentions).0;
+    let text = crate::markup::mentions(crate::msgmenu::unedited(&m.text), &m.mentions).0;
     let mut quoted = wrap(&text, w.saturating_sub(10));
     if quoted.len() > 2 {
         quoted[1] = truncate(&format!("{}…", quoted[1].trim_end()), w.saturating_sub(10));
@@ -173,7 +176,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     match &info.receipts {
         None => {
             list.push(row(w, Vec::new(), None));
-            list.push(row(w, vec![Span::styled("   Carregando…", bg.fg(META_IN))], None));
+            list.push(row(w, vec![Span::styled(tr!("   Loading…", "   Carregando…"), bg.fg(META_IN))], None));
         }
         Some(rs) if group => {
             let others = info.others;
@@ -182,15 +185,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             let read: Vec<&Receipt> = rs.iter().filter(|r| r.read > 0).collect();
             let delivered: Vec<&Receipt> = rs.iter().filter(|r| r.delivered > 0).collect();
             if voice {
-                stage(&mut list, w, (MIC, LINK_IN, "Reproduzida por"), &played, |r| r.played, left(played.len()));
+                stage(&mut list, w, (MIC, LINK_IN, tr!("Played by", "Reproduzida por")), &played, |r| r.played, left(played.len()));
             }
             let read_only: Vec<&Receipt> = read.iter().copied().filter(|r| !voice || r.played == 0).collect();
-            stage(&mut list, w, (TICKS, LINK_IN, "Lida por"), &read_only, |r| r.read, left(read.len()));
+            stage(&mut list, w, (TICKS, LINK_IN, tr!("Read by", "Lida por")), &read_only, |r| r.read, left(read.len()));
             let got: Vec<&Receipt> = delivered.iter().copied().filter(|r| r.read == 0).collect();
-            stage(&mut list, w, (TICKS, META_IN, "Entregue para"), &got, |r| r.delivered, left(delivered.len()));
+            stage(&mut list, w, (TICKS, META_IN, tr!("Delivered to", "Entregue para")), &got, |r| r.delivered, left(delivered.len()));
             if list.is_empty() {
                 list.push(row(w, Vec::new(), None));
-                list.push(row(w, vec![Span::styled("   Ainda não foi entregue", bg.fg(META_IN))], None));
+                list.push(row(w, vec![Span::styled(tr!("   Not delivered yet", "   Ainda não foi entregue"), bg.fg(META_IN))], None));
             }
         }
         Some(rs) => {
@@ -198,10 +201,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             let one = rs.first().cloned().unwrap_or_default();
             let mut moments = Vec::new();
             if voice {
-                moments.push((MIC, LINK_IN, "Reproduzida", one.played));
+                moments.push((MIC, LINK_IN, tr!("Played", "Reproduzida"), one.played));
             }
-            moments.push((TICKS, LINK_IN, "Lida", one.read));
-            moments.push((TICKS, META_IN, "Entregue", one.delivered));
+            moments.push((TICKS, LINK_IN, tr!("Read", "Lida"), one.read));
+            moments.push((TICKS, META_IN, tr!("Delivered", "Entregue"), one.delivered));
             for (icon, tint, label, ts) in moments {
                 list.push(row(w, Vec::new(), None));
                 list.push(row(w, vec![Span::styled("   ", bg), Span::styled(icon, bg.fg(tint)), Span::styled(format!("  {label}"), bg.fg(TEXT))], None));

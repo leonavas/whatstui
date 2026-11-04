@@ -1,8 +1,8 @@
-//! What whatsapp-tui tells other programs: a snapshot of what is unread, in
+//! What whatstui tells other programs: a snapshot of what is unread, in
 //! `state.json` next to the socket (see `ipc`), and events, as JSON lines,
 //! to the socket's subscribers and to the hooks in
-//! `~/.config/whatsapp-tui/hooks/<event>.d/`. The Omarchy widget reads the
-//! snapshot; scripts can follow `whatsapp-tui events`. docs/events.md has the format.
+//! `~/.config/whatstui/hooks/<event>.d/`. The Omarchy widget reads the
+//! snapshot; scripts can follow `whatstui events`. docs/events.md has the format.
 
 use crate::app::{App, Phase};
 use crate::bridge::{Chat, Msg};
@@ -25,7 +25,7 @@ type Key = (i64, u32);
 
 #[derive(Default)]
 pub struct State {
-    /// Off in a second whatsapp-tui (`--new-instance`): the first one speaks for it.
+    /// Off in a second whatstui (`--new-instance`): the first one speaks for it.
     pub on: bool,
     /// The chat list came at least once: before it, every badge would read 0.
     pub chats_loaded: bool,
@@ -122,7 +122,7 @@ fn deliver(name: &str, line: &str) {
 }
 
 /// Every executable in `hooks/<event>.d/`, with the event on stdin and its
-/// name in `WHATSAPP_TUI_EVENT`. Started and left to run: nobody waits for them.
+/// name in `WHATSTUI_EVENT`. Started and left to run: nobody waits for them.
 fn run_hooks(name: &str, line: &str) {
     use std::os::unix::fs::PermissionsExt;
     let dir = crate::bridge::config_dir().join("hooks").join(format!("{name}.d"));
@@ -135,7 +135,7 @@ fn run_hooks(name: &str, line: &str) {
     hooks.sort();
     for hook in hooks {
         let child = std::process::Command::new(&hook)
-            .env("WHATSAPP_TUI_EVENT", name)
+            .env("WHATSTUI_EVENT", name)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -233,7 +233,7 @@ impl App {
         let until = until.filter(|t| *t > chrono::Local::now().timestamp());
         self.events.paused = until;
         if let Err(e) = save_pause(until) {
-            self.note(format!("não salvou a pausa: {e}"));
+            self.note(tr!(format!("couldn't save the pause: {e}"), format!("não salvou a pausa: {e}")));
         }
     }
 

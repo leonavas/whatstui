@@ -106,9 +106,9 @@ impl App {
             .into_iter()
             .map(|c| {
                 let you = mine.as_ref() == Some(&c.jid);
-                let name = if you { format!("{} (você)", phone(&c.jid)) } else { display_name(&c.name, &c.jid) };
+                let name = if you { tr!(format!("{} (you)", phone(&c.jid)), format!("{} (você)", phone(&c.jid))) } else { display_name(&c.name, &c.jid) };
                 let sub = match self.msg_menu.fwd.subs.get(&c.jid).filter(|s| !s.is_empty()) {
-                    _ if you => "Mensagens para mim".to_string(),
+                    _ if you => tr!("Message yourself", "Mensagens para mim").to_string(),
                     Some(s) => s.replace('\n', " "),
                     None if !c.group && name != phone(&c.jid) => phone(&c.jid),
                     None => String::new(),
@@ -127,7 +127,7 @@ impl App {
     fn send_forward(&mut self) {
         let Some(p) = self.msg_menu.fwd.picker.as_ref().filter(|p| !p.checked.is_empty()) else { return };
         if self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let to = p.checked.clone();
         self.msg_menu.fwd.picker = None;
@@ -269,7 +269,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     lines.push(row(
-        vec![Span::raw("  "), Span::styled(CLOSE, base.fg(META_IN)), Span::raw("   "), Span::styled("Encaminhar mensagens para", base.fg(TEXT).add_modifier(Modifier::BOLD))],
+        vec![Span::raw("  "), Span::styled(CLOSE, base.fg(META_IN)), Span::raw("   "), Span::styled(tr!("Forward messages to", "Encaminhar mensagens para"), base.fg(TEXT).add_modifier(Modifier::BOLD))],
         w,
         MENU_BG,
     ));
@@ -278,7 +278,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // The search, a pill across, always with the keys.
     let field = Style::new().bg(FIELD);
     let room = (w as usize).saturating_sub(4 + 2 + 4 + 1);
-    let (text, fg) = if query.is_empty() { ("Pesquisar nome ou número".to_string(), META_IN) } else { (query.clone(), TEXT) };
+    let (text, fg) = if query.is_empty() { (tr!("Search name or number", "Pesquisar nome ou número").to_string(), META_IN) } else { (query.clone(), TEXT) };
     let text = truncate(&text, room);
     let pad = room.saturating_sub(text.width()) + 1;
     lines.push(row(
@@ -295,7 +295,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     ));
     let caret = rect.x + 3 + 4 + query.width().min(room) as u16;
     lines.push(row(Vec::new(), w, MENU_BG));
-    let header = if targets.is_empty() { "Nenhuma conversa encontrada" } else { "Conversas recentes" };
+    let header = if targets.is_empty() { tr!("No chats found", "Nenhuma conversa encontrada") } else { tr!("Recent chats", "Conversas recentes") };
     lines.push(row(vec![Span::styled(format!("  {header}"), base.fg(META_IN))], w, MENU_BG));
     lines.push(row(Vec::new(), w, MENU_BG));
 
@@ -349,7 +349,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         let mine = format!("{}@s.whatsapp.net", app.me);
         let names: Vec<String> = checked
             .iter()
-            .map(|j| all.iter().find(|t| t.jid == *j).map_or_else(|| phone(j), |t| if t.jid == mine { "Você".to_string() } else { t.name.clone() }))
+            .map(|j| all.iter().find(|t| t.jid == *j).map_or_else(|| phone(j), |t| if t.jid == mine { tr!("You", "Você").to_string() } else { t.name.clone() }))
             .collect();
         let bar = Style::new().bg(MENU_HOVER);
         let btn_w = 2 + SEND.width() + 2;
@@ -373,7 +373,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         let sy = y0 + lines.len() as u16 - 1;
         app.msg_menu.fwd.send_btn = Rect::new(rect.right().saturating_sub(btn_w as u16 + 2), sy, btn_w as u16, 1);
     }
-    let hint = truncate("  ↑↓ move · Enter marca · Alt+Enter envia · Esc fecha", w as usize);
+    let hint = truncate(tr!("  ↑↓ move · Enter selects · Alt+Enter sends · Esc closes", "  ↑↓ move · Enter marca · Alt+Enter envia · Esc fecha"), w as usize);
     lines.push(row(vec![Span::styled(hint, dim().bg(MENU_BG))], w, MENU_BG));
     lines.truncate(n as usize);
 

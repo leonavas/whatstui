@@ -66,18 +66,22 @@ func (b *Bridge) mine(j types.JID) bool {
 // callText is how a call reads in the chat list, a notification or a
 // search: what it was, missed when it's someone's nobody took.
 func callText(c Call, fromMe bool) string {
-	icon, what := "📞", "Ligação de voz"
+	icon, what := "📞", tr("Voice call", "Ligação de voz")
 	if c.Video {
-		icon, what = "📹", "Chamada de vídeo"
+		icon, what = "📹", tr("Video call", "Chamada de vídeo")
 	}
 	if c.Group {
-		what += " em grupo"
+		if c.Video {
+			what = tr("Group video call", "Chamada de vídeo em grupo")
+		} else {
+			what = tr("Group voice call", "Ligação de voz em grupo")
+		}
 	}
 	if c.Outcome == "missed" && !fromMe {
 		if c.Video {
-			return icon + " Chamada de vídeo perdida"
+			return icon + tr(" Missed video call", " Chamada de vídeo perdida")
 		}
-		return icon + " Ligação de voz perdida"
+		return icon + tr(" Missed voice call", " Ligação de voz perdida")
 	}
 	return icon + " " + what
 }

@@ -140,7 +140,7 @@ func (b *Bridge) sendReaction(chat, id, emoji string) {
 	if _, err := b.cli.SendMessage(b.ctx, jid, b.cli.BuildReaction(jid, by, id, emoji)); err != nil {
 		b.react(chat, id, me, old, now.Unix())
 		b.emitMsg(chat, id)
-		emit(map[string]any{"t": "error", "text": "não reagiu: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't react: ", "não reagiu: ") + err.Error()})
 	}
 }
 

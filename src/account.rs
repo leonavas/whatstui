@@ -1,6 +1,6 @@
 //! The account button at the foot of the sidebar and its menu, as in slick:
 //! your picture, name and connection, pausing notifications, your profile,
-//! whatsapp-tui's settings, new versions, about, and unlinking this device.
+//! whatstui's settings, new versions, about, and unlinking this device.
 
 use crate::app::{App, Phase};
 use crate::bridge::Profile;
@@ -23,12 +23,12 @@ const PAUSED: &str = "\u{f1f6}";
 const MENU_W: u16 = 40;
 /// Rows the button takes at the foot of the sidebar, its top line included.
 pub const BUTTON_H: u16 = 3;
-const REPO: &str = "github.com/leonavas/whatsapp-tui";
+const REPO: &str = "github.com/leonavas/whatstui";
 /// Under a menu row whose submenu is open.
 const OPENED: Color = Color::Indexed(236);
 
 fn version() -> String {
-    format!("WhatsApp TUI v{}", env!("CARGO_PKG_VERSION"))
+    format!("WhatsTUI v{}", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -230,9 +230,9 @@ fn until(ts: i64) -> String {
     let today = Local::now().date_naive();
     let hhmm = t.format("%H:%M");
     match t.date_naive() {
-        d if d == today => format!("até {hhmm}"),
-        d if today.succ_opt() == Some(d) => format!("até amanhã, {hhmm}"),
-        _ => format!("até {}, {hhmm}", t.format("%d/%m")),
+        d if d == today => tr!(format!("until {hhmm}"), format!("até {hhmm}")),
+        d if today.succ_opt() == Some(d) => tr!(format!("until tomorrow, {hhmm}"), format!("até amanhã, {hhmm}")),
+        _ => tr!(format!("until {}, {hhmm}", t.format("%b %-d")), format!("até {}, {hhmm}", t.format("%d/%m"))),
     }
 }
 
@@ -255,18 +255,18 @@ fn sub_rows(app: &App) -> Vec<(Option<Item>, String)> {
     let mut rows = Vec::new();
     // Paused: until when, and a way back, before pausing anew.
     if let Some(t) = app.events.paused {
-        rows.push((None, format!("{PAUSED} Pausadas {}", until(t))));
+        rows.push((None, tr!(format!("{PAUSED} Paused {}", until(t)), format!("{PAUSED} Pausadas {}", until(t)))));
         rows.push((Some(Item::Sep), String::new()));
-        rows.push((Some(Item::Resume), "Retomar notificações".into()));
+        rows.push((Some(Item::Resume), tr!("Resume notifications", "Retomar notificações").into()));
         rows.push((Some(Item::Sep), String::new()));
     }
-    rows.push((None, "Pausar notificações por…".into()));
+    rows.push((None, tr!("Pause notifications for…", "Pausar notificações por…").into()));
     let pauses = [
-        (Item::Pause(30), "30 minutos"),
-        (Item::Pause(60), "1 hora"),
-        (Item::Pause(120), "2 horas"),
-        (Item::Pause(0), "Até amanhã"),
-        (Item::PauseWeek, "Até a próxima semana"),
+        (Item::Pause(30), tr!("30 minutes", "30 minutos")),
+        (Item::Pause(60), tr!("1 hour", "1 hora")),
+        (Item::Pause(120), tr!("2 hours", "2 horas")),
+        (Item::Pause(0), tr!("Until tomorrow", "Até amanhã")),
+        (Item::PauseWeek, tr!("Until next week", "Até a próxima semana")),
     ];
     rows.extend(pauses.map(|(i, l)| (Some(i), l.to_string())));
     rows
@@ -285,17 +285,17 @@ pub(crate) fn my_name(app: &App) -> String {
     if !app.me_name.is_empty() {
         return app.me_name.clone();
     }
-    app.my_jid().map(|j| phone(&j)).filter(|p| !p.is_empty()).unwrap_or_else(|| "Você".into())
+    app.my_jid().map(|j| phone(&j)).filter(|p| !p.is_empty()).unwrap_or_else(|| tr!("You", "Você").into())
 }
 
 /// The line under your name: the connection, or the pause.
 fn state(app: &App) -> String {
     let paused = app.events.paused.filter(|t| *t > Local::now().timestamp());
     match (app.phase == Phase::Ready, app.sync, paused) {
-        (false, ..) => "conectando…".into(),
-        (true, Some(p), _) => format!("sincronizando {p}%"),
-        (true, None, Some(t)) => format!("{PAUSED} pausado {}", until(t)),
-        _ => "conectado".into(),
+        (false, ..) => tr!("connecting…", "conectando…").into(),
+        (true, Some(p), _) => tr!(format!("syncing {p}%"), format!("sincronizando {p}%")),
+        (true, None, Some(t)) => tr!(format!("{PAUSED} paused {}", until(t)), format!("{PAUSED} pausado {}", until(t))),
+        _ => tr!("connected", "conectado").into(),
     }
 }
 
@@ -367,7 +367,7 @@ impl App {
     fn sign_out(&mut self) {
         self.account.signing_out = true;
         self.cmd(json!({"c": "logout"}));
-        self.note("Desconectando…");
+        self.note(tr!("Logging out…", "Desconectando…"));
     }
 
     /// Everything of the account that went away, on screen and on disk (the
@@ -442,7 +442,7 @@ impl App {
         let Some(e) = self.account.edit.take() else { return };
         let text = e.text.trim().to_string();
         if text.is_empty() {
-            self.note(if e.field == Field::Name { "O nome não pode ficar vazio." } else { "O recado não pode ficar vazio." });
+            self.note(if e.field == Field::Name { tr!("Your name can't be empty.", "O nome não pode ficar vazio.") } else { tr!("Your about can't be empty.", "O recado não pode ficar vazio.") });
             self.account.edit = Some(e);
             return;
         }
@@ -466,7 +466,7 @@ impl App {
         }
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let res = crate::attach::choose_one("Foto do perfil", &PHOTO_EXTS).and_then(|p| p.map(|p| square_jpeg(&p)).transpose());
+            let res = crate::attach::choose_one(tr!("Profile photo", "Foto do perfil"), &PHOTO_EXTS).and_then(|p| p.map(|p| square_jpeg(&p)).transpose());
             let _ = tx.send(crate::Ev::MyPhoto(res));
         });
     }
@@ -489,27 +489,27 @@ impl App {
         self.account.saving = None;
         if !error.is_empty() {
             let whose = match what {
-                "name" => "seu nome",
-                "about" => "seu recado",
-                _ => "sua foto",
+                "name" => tr!("your name", "seu nome"),
+                "about" => tr!("your about", "seu recado"),
+                _ => tr!("your photo", "sua foto"),
             };
-            self.note(format!("não mudou {whose}: {error}"));
+            self.note(tr!(format!("couldn't change {whose}: {error}"), format!("não mudou {whose}: {error}")));
             return;
         }
         match what {
             "name" => {
                 self.me_name = text;
-                self.note("Nome alterado");
+                self.note(tr!("Name changed", "Nome alterado"));
             }
             "about" => {
                 if let Some(Some(p)) = self.account.profile.as_mut() {
                     p.about = text;
                 }
-                self.note("Recado alterado");
+                self.note(tr!("About changed", "Recado alterado"));
             }
             // The new picture comes as an avatar, after.
-            _ if text == "removed" => self.note("Foto do perfil removida"),
-            _ => self.note("Foto do perfil alterada"),
+            _ if text == "removed" => self.note(tr!("Profile photo removed", "Foto do perfil removida")),
+            _ => self.note(tr!("Profile photo changed", "Foto do perfil alterada")),
         }
     }
 
@@ -543,8 +543,8 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => mv(&mut self.account, (sel + 1) % n),
             KeyCode::Enter | KeyCode::Char(' ') => self.profile_act(ACTS[sel.min(n - 1)]),
             KeyCode::Char('n') => self.profile_act(Act::Name),
-            KeyCode::Char('r') => self.profile_act(Act::About),
-            KeyCode::Char('f') => self.profile_act(Act::Photo),
+            KeyCode::Char('r' | 'a') => self.profile_act(Act::About),
+            KeyCode::Char('f' | 'p') => self.profile_act(Act::Photo),
             KeyCode::Char('x') => self.profile_act(Act::RemovePhoto),
             _ => {}
         }
@@ -575,11 +575,11 @@ impl App {
                     _ => vec![],
                 };
                 a.update = Some(State::Downloaded { ver: ver.clone(), assets, pkg });
-                self.note(format!("WhatsApp TUI {ver} baixado · instale pelo menu da conta (Alt+S)"));
+                self.note(tr!(format!("WhatsTUI {ver} downloaded · install it from the account menu (Alt+S)"), format!("WhatsTUI {ver} baixado · instale pelo menu da conta (Alt+S)")));
             }
             Note::Downloaded(Err(e)) => {
                 a.update = a.update.take().map(State::retry);
-                self.note(format!("não baixou a atualização: {e}"));
+                self.note(tr!(format!("couldn't download the update: {e}"), format!("não baixou a atualização: {e}")));
             }
             Note::Installed(Ok(ver)) => {
                 a.update = Some(State::Installed(ver));
@@ -587,7 +587,7 @@ impl App {
             }
             Note::Installed(Err(e)) => {
                 a.update = a.update.take().map(State::retry);
-                self.note(format!("não atualizou: {e}"));
+                self.note(tr!(format!("couldn't update: {e}"), format!("não atualizou: {e}")));
             }
             Note::Checked(Ok(Some((ver, assets)))) => {
                 a.update = Some(State::found(a.update.take(), ver.clone(), assets));
@@ -596,12 +596,12 @@ impl App {
                     p.sel = Item::Update;
                 }
                 match crate::update::how() {
-                    Some(how) => self.note(format!("WhatsApp TUI {ver} disponível · {how}")),
-                    None => self.note(format!("WhatsApp TUI {ver} disponível · baixe pelo menu da conta (Alt+S)")),
+                    Some(how) => self.note(tr!(format!("WhatsTUI {ver} available · {how}"), format!("WhatsTUI {ver} disponível · {how}"))),
+                    None => self.note(tr!(format!("WhatsTUI {ver} available · download it from the account menu (Alt+S)"), format!("WhatsTUI {ver} disponível · baixe pelo menu da conta (Alt+S)"))),
                 }
             }
-            Note::Checked(Ok(None)) => self.note(format!("WhatsApp TUI está atualizado ({})", crate::update::current())),
-            Note::Checked(Err(e)) => self.note(format!("não procurou atualizações: {e}")),
+            Note::Checked(Ok(None)) => self.note(tr!(format!("WhatsTUI is up to date ({})", crate::update::current()), format!("WhatsTUI está atualizado ({})", crate::update::current()))),
+            Note::Checked(Err(e)) => self.note(tr!(format!("couldn't check for updates: {e}"), format!("não procurou atualizações: {e}"))),
         }
     }
 
@@ -627,10 +627,10 @@ impl App {
             return false;
         }
         if crate::update::check_disabled() {
-            self.note("build de desenvolvimento: atualizações desligadas");
+            self.note(tr!("development build: updates are off", "build de desenvolvimento: atualizações desligadas"));
             return false;
         }
-        self.note("Procurando atualizações…");
+        self.note(tr!("Checking for updates…", "Procurando atualizações…"));
         self.update_job(crate::update::check_now);
         true
     }
@@ -644,7 +644,7 @@ impl App {
                     self.account.update = Some(State::Available { ver, assets });
                     self.note(how);
                 } else {
-                    self.note(format!("baixando WhatsApp TUI {ver}…"));
+                    self.note(tr!(format!("downloading WhatsTUI {ver}…"), format!("baixando WhatsTUI {ver}…")));
                     self.account.update = Some(State::Downloading { ver: ver.clone(), assets: assets.clone(), pct: None });
                     let tx = self.tx.clone();
                     let progress = move |p| {
@@ -654,7 +654,7 @@ impl App {
                 }
             }
             Some(State::Downloaded { ver, assets, pkg }) => {
-                self.note(format!("instalando WhatsApp TUI {ver}…"));
+                self.note(tr!(format!("installing WhatsTUI {ver}…"), format!("instalando WhatsTUI {ver}…")));
                 self.account.update = Some(State::Installing { ver: ver.clone(), assets });
                 self.update_job(move || crate::update::install_now(ver, pkg));
             }
@@ -669,7 +669,13 @@ impl App {
     /// Flips a switch; the dialog stays open. The tray follows in main's loop.
     fn choose_opt(&mut self, o: Opt) {
         if let Err(e) = self.settings.flip(o) {
-            self.note(format!("não salvou a configuração: {e}"));
+            self.note(tr!(format!("couldn't save the setting: {e}"), format!("não salvou a configuração: {e}")));
+        } else if o == config::PORTUGUESE {
+            // Already in the new language: the helper's own texts follow on the next start.
+            self.note(tr!(
+                "English on. Texts from WhatsApp's side (calls, previews) switch fully after a restart.",
+                "Português ativado. Textos do lado do WhatsApp (chamadas, prévias) mudam por completo após reiniciar."
+            ));
         }
     }
 
@@ -898,11 +904,11 @@ fn update_pill(app: &App) -> Option<Line<'static>> {
     let (label, fg, bg) = match app.account.update.as_ref()? {
         State::Available { ver, .. } => (format!("↑ {ver}"), Color::Black, green()),
         // Faded while it works: there is nothing to click.
-        State::Downloading { pct: Some(p), .. } => (format!("baixando {p}%"), Color::DarkGray, Color::Indexed(236)),
-        State::Downloading { .. } => ("baixando…".into(), Color::DarkGray, Color::Indexed(236)),
-        State::Downloaded { .. } => ("↻ instalar".into(), Color::Black, green()),
-        State::Installing { .. } => ("instalando…".into(), Color::DarkGray, Color::Indexed(236)),
-        State::Installed(_) => ("↻ reiniciar".into(), Color::Black, green()),
+        State::Downloading { pct: Some(p), .. } => (tr!(format!("downloading {p}%"), format!("baixando {p}%")), Color::DarkGray, Color::Indexed(236)),
+        State::Downloading { .. } => (tr!("downloading…", "baixando…").into(), Color::DarkGray, Color::Indexed(236)),
+        State::Downloaded { .. } => (tr!("↻ install", "↻ instalar").into(), Color::Black, green()),
+        State::Installing { .. } => (tr!("installing…", "instalando…").into(), Color::DarkGray, Color::Indexed(236)),
+        State::Installed(_) => (tr!("↻ restart", "↻ reiniciar").into(), Color::Black, green()),
     };
     Some(Line::from(vec![
         Span::styled(CAP_L, Style::new().fg(bg)),
@@ -965,12 +971,12 @@ fn update_row(app: &App) -> (String, String, bool) {
     match s {
         State::Available { ver, .. } => match crate::update::how_short() {
             Some(how) => (format!("{how} (v{ver})"), String::new(), true),
-            None => (format!("Baixar atualização (v{ver})"), "↓".into(), true),
+            None => (tr!(format!("Download update (v{ver})"), format!("Baixar atualização (v{ver})")), "↓".into(), true),
         },
-        State::Downloading { pct: Some(p), .. } => (format!("Baixando… {p}%"), crate::media::spin().into(), false),
-        State::Downloading { .. } => ("Baixando…".into(), crate::media::spin().into(), false),
-        State::Downloaded { ver, .. } => (format!("Instalar e reiniciar (v{ver})"), "↻".into(), true),
-        State::Installing { .. } => ("Instalando…".into(), crate::media::spin().into(), false),
+        State::Downloading { pct: Some(p), .. } => (tr!(format!("Downloading… {p}%"), format!("Baixando… {p}%")), crate::media::spin().into(), false),
+        State::Downloading { .. } => (tr!("Downloading…", "Baixando…").into(), crate::media::spin().into(), false),
+        State::Downloaded { ver, .. } => (tr!(format!("Install and restart (v{ver})"), format!("Instalar e reiniciar (v{ver})")), "↻".into(), true),
+        State::Installing { .. } => (tr!("Installing…", "Instalando…").into(), crate::media::spin().into(), false),
         State::Installed(_) => Default::default(),
     }
 }
@@ -1017,25 +1023,25 @@ fn draw_menu(f: &mut Frame, app: &mut App) {
                     }
                 }
                 let right = if app.paused() { format!("{PAUSED} ›") } else { "›".into() };
-                padded("Notificações", &right, iw)
+                padded(tr!("Notifications", "Notificações"), &right, iw)
             }
-            Item::Profile => padded("Perfil", "", iw),
-            Item::Settings => padded("Configurações", "", iw),
-            Item::Shortcuts => padded("Atalhos de teclado", "Ctrl+/", iw),
-            Item::CheckUpdate if matches!(app.account.update, Some(State::Installed(_))) => padded("Reinicie para atualizar", "↻", iw),
-            Item::CheckUpdate => padded("Procurar atualizações", "", iw),
+            Item::Profile => padded(tr!("Profile", "Perfil"), "", iw),
+            Item::Settings => padded(tr!("Settings", "Configurações"), "", iw),
+            Item::Shortcuts => padded(tr!("Keyboard shortcuts", "Atalhos de teclado"), "Ctrl+/", iw),
+            Item::CheckUpdate if matches!(app.account.update, Some(State::Installed(_))) => padded(tr!("Restart to update", "Reinicie para atualizar"), "↻", iw),
+            Item::CheckUpdate => padded(tr!("Check for updates", "Procurar atualizações"), "", iw),
             // In the accent, as what's new; faded while it works.
             Item::Update => {
                 let (label, right, live) = update_row(app);
                 style = if live { style.fg(green()).bold() } else { style.patch(dim()) };
                 padded(&label, &right, iw)
             }
-            Item::About => padded("Sobre o WhatsApp TUI", "", iw),
+            Item::About => padded(tr!("About WhatsTUI", "Sobre o WhatsTUI"), "", iw),
             Item::Logout if confirm => {
                 style = style.fg(Color::Yellow).bold();
-                padded("Desconectar? Enter confirma", "", iw)
+                padded(tr!("Log out? Enter confirms", "Desconectar? Enter confirma"), "", iw)
             }
-            _ => padded("Desconectar", "", iw),
+            _ => padded(tr!("Log out", "Desconectar"), "", iw),
         };
         f.render_widget(Paragraph::new(Line::from(label).style(style)), row);
         app.account.rows.push((row, *item));
@@ -1099,7 +1105,7 @@ pub(crate) fn dialog(f: &mut Frame, app: &mut App, w: u16, h: u16, title: &str) 
     (rect, inner)
 }
 
-/// whatsapp-tui's settings: a heading over each group of `config::SECTIONS`, its switches under it.
+/// whatstui's settings: a heading over each group of `config::SECTIONS`, its switches under it.
 fn draw_settings(f: &mut Frame, app: &mut App) {
     let Some(sel) = app.account.settings else { return };
     let mut lines: Vec<(Option<usize>, Line)> = vec![(None, Line::default())];
@@ -1108,19 +1114,19 @@ fn draw_settings(f: &mut Frame, app: &mut App) {
         if n > 0 {
             lines.push((None, Line::default()));
         }
-        lines.push((None, Line::from(format!(" {heading}")).style(Style::new().fg(green()).bold())));
+        lines.push((None, Line::from(format!(" {}", tr!(heading.0, heading.1))).style(Style::new().fg(green()).bold())));
         for o in *opts {
             let mark = if app.settings.on(*o) { "[✓]" } else { "[ ]" };
-            lines.push((Some(i), Line::from(format!("{mark} {}", o.label))));
+            lines.push((Some(i), Line::from(format!("{mark} {}", o.label()))));
             i += 1;
         }
     }
     lines.push((None, Line::default()));
-    lines.push((None, Line::from(" ↑↓ move · Enter escolhe · Esc fecha").style(dim())));
+    lines.push((None, Line::from(tr!(" ↑↓ move · Enter selects · Esc closes", " ↑↓ move · Enter escolhe · Esc fecha")).style(dim())));
     lines.push((None, Line::from(format!(" {}", version())).style(dim())));
 
     let content_w = lines.iter().map(|(_, l)| l.width()).max().unwrap_or(0) as u16;
-    let (_, inner) = dialog(f, app, (content_w + 8).max(44), lines.len() as u16 + 2, " Configurações ");
+    let (_, inner) = dialog(f, app, (content_w + 8).max(44), lines.len() as u16 + 2, tr!(" Settings ", " Configurações "));
     for (n, (opt, line)) in lines.into_iter().enumerate() {
         let row = Rect::new(inner.x, inner.y + n as u16, inner.width, 1);
         if row.y >= inner.bottom() {
@@ -1139,13 +1145,13 @@ fn draw_settings(f: &mut Frame, app: &mut App) {
     }
 }
 
-/// "Sobre o WhatsApp TUI": the name, the version and where the code is.
+/// "Sobre o WhatsTUI": the name, the version and where the code is.
 fn draw_about(f: &mut Frame, app: &mut App) {
-    let hint = "Enter abre o link · Esc fecha";
+    let hint = tr!("Enter opens the link · Esc closes", "Enter abre o link · Esc fecha");
     let lines = vec![
         Line::default(),
-        Line::from("WhatsApp TUI").style(Style::new().fg(green()).bold()),
-        Line::from(format!("versão {}", env!("CARGO_PKG_VERSION"))).style(dim()),
+        Line::from("WhatsTUI").style(Style::new().fg(green()).bold()),
+        Line::from(tr!(format!("version {}", env!("CARGO_PKG_VERSION")), format!("versão {}", env!("CARGO_PKG_VERSION")))).style(dim()),
         Line::default(),
         Line::from(REPO).style(Style::new().fg(LINK_IN).underlined()),
         Line::default(),
@@ -1167,7 +1173,7 @@ fn draw_about(f: &mut Frame, app: &mut App) {
 /// send (it removes it).
 fn square_jpeg(path: &Path) -> Result<PathBuf, String> {
     use image::ImageDecoder;
-    let bad = |e: String| format!("não leu a imagem: {e}");
+    let bad = |e: String| tr!(format!("couldn't read the image: {e}"), format!("não leu a imagem: {e}"));
     let reader = image::ImageReader::open(path).and_then(|r| r.with_guessed_format()).map_err(|e| bad(e.to_string()))?;
     let mut dec = reader.into_decoder().map_err(|e| bad(e.to_string()))?;
     let orientation = dec.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
@@ -1177,10 +1183,10 @@ fn square_jpeg(path: &Path) -> Result<PathBuf, String> {
     let dir = crate::bridge::cache_dir();
     let _ = std::fs::create_dir_all(&dir);
     let to = dir.join(format!("profile-photo-{}.jpg", std::process::id()));
-    let file = std::fs::File::create(&to).map_err(|e| format!("foto do perfil: {e}"))?;
+    let file = std::fs::File::create(&to).map_err(|e| tr!(format!("profile photo: {e}"), format!("foto do perfil: {e}")))?;
     image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(file), 90)
         .encode_image(&img)
-        .map_err(|e| format!("foto do perfil: {e}"))?;
+        .map_err(|e| tr!(format!("profile photo: {e}"), format!("foto do perfil: {e}")))?;
     Ok(to)
 }
 
@@ -1216,7 +1222,7 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
     let w = 52u16.min(f.area().width.saturating_sub(4));
     let iw = w.saturating_sub(4) as usize;
     let about = match &data {
-        None => "carregando…".to_string(),
+        None => tr!("loading…", "carregando…").to_string(),
         Some(p) if !p.error.is_empty() => p.error.clone(),
         Some(p) if p.about.is_empty() => "—".into(),
         Some(p) => p.about.clone(),
@@ -1231,12 +1237,12 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
         }
         Line::from(spans)
     };
-    let mut lines = vec![heading("Nome", Field::Name)];
+    let mut lines = vec![heading(tr!("Name", "Nome"), Field::Name)];
     match edit.filter(|e| e.field == Field::Name) {
         Some(e) => lines.extend(edit_lines(e, iw.saturating_sub(2))),
         None => lines.push(Line::from(format!(" {}", truncate(&my_name(app), iw.saturating_sub(1))))),
     }
-    lines.push(heading("Recado", Field::About));
+    lines.push(heading(tr!("About", "Recado"), Field::About));
     match edit.filter(|e| e.field == Field::About) {
         Some(e) => lines.extend(edit_lines(e, iw.saturating_sub(2))),
         None => lines.extend(wrap(&about, iw.saturating_sub(2)).into_iter().map(|l| Line::from(format!(" {l}")))),
@@ -1245,11 +1251,11 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
     let acts_at = lines.len();
     for (i, act) in ACTS.iter().enumerate() {
         let (label, key) = match act {
-            Act::Name => ("Mudar nome", "n"),
-            Act::About => ("Mudar recado", "r"),
-            Act::Photo => ("Trocar foto", "f"),
-            Act::RemovePhoto if a.confirm_remove => ("Remover foto? Enter confirma", "x"),
-            Act::RemovePhoto => ("Remover foto", "x"),
+            Act::Name => (tr!("Change name", "Mudar nome"), "n"),
+            Act::About => (tr!("Change about", "Mudar recado"), tr!("a", "r")),
+            Act::Photo => (tr!("Change photo", "Trocar foto"), tr!("p", "f")),
+            Act::RemovePhoto if a.confirm_remove => (tr!("Remove photo? Enter confirms", "Remover foto? Enter confirma"), "x"),
+            Act::RemovePhoto => (tr!("Remove photo", "Remover foto"), "x"),
         };
         let mut style = if i == a.profile_sel && edit.is_none() { Style::new().add_modifier(Modifier::REVERSED) } else { Style::new() };
         if edit.is_some() || a.saving.is_some() {
@@ -1261,14 +1267,14 @@ fn draw_profile(f: &mut Frame, app: &mut App) {
     }
     lines.push(Line::default());
     let hint = match (a.saving, edit.is_some()) {
-        (Some(_), _) => format!("{} salvando…", crate::media::spin()),
-        (None, true) => "Enter salva · Esc cancela".into(),
-        (None, false) => "↑↓ move · Enter escolhe · Esc fecha".into(),
+        (Some(_), _) => tr!(format!("{} saving…", crate::media::spin()), format!("{} salvando…", crate::media::spin())),
+        (None, true) => tr!("Enter saves · Esc cancels", "Enter salva · Esc cancela").into(),
+        (None, false) => tr!("↑↓ move · Enter selects · Esc closes", "↑↓ move · Enter escolhe · Esc fecha").into(),
     };
     lines.push(Line::from(hint).style(dim()));
     // A gap, you (two rows) and a gap over the rest.
     let h = 4 + lines.len() as u16 + 2;
-    let (_, inner) = dialog(f, app, w, h, " Perfil ");
+    let (_, inner) = dialog(f, app, w, h, tr!(" Profile ", " Perfil "));
     if inner.height < 4 {
         return;
     }

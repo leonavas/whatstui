@@ -68,7 +68,7 @@ func (b *Bridge) sendFile(c Cmd) {
 	}
 	f, err := os.Open(c.Path)
 	if err != nil {
-		emit(map[string]any{"t": "error", "text": "não enviou: " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't send: ", "não enviou: ") + err.Error()})
 		return
 	}
 	head := make([]byte, 512)
@@ -119,7 +119,7 @@ func (b *Bridge) sendFile(c Cmd) {
 // storeFile writes (or rewrites) the message as the TUI reads it.
 func (b *Bridge) storeFile(o outFile, status int) {
 	text, _ := textOf(o.msg)
-	m := &Msg{Chat: o.cmd.Chat, ID: o.id, Sender: b.me().String(), SenderName: "Você", FromMe: true, TS: o.ts, Text: text, Status: status}
+	m := &Msg{Chat: o.cmd.Chat, ID: o.id, Sender: b.me().String(), SenderName: tr("You", "Você"), FromMe: true, TS: o.ts, Text: text, Status: status}
 	quote, quoteFrom, quoteID := o.quote.cols()
 	b.db.Exec(`INSERT INTO messages (chat, id, sender, from_me, ts, text, quote, quote_from, quote_id, status) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (chat, id) DO UPDATE SET text = excluded.text`, m.Chat, m.ID, m.Sender, m.TS, m.Text, quote, quoteFrom, quoteID, status)
@@ -137,7 +137,7 @@ func (b *Bridge) uploadFile(o outFile) {
 		defer os.Remove(o.cmd.Path)
 	}
 	fail := func(err error) {
-		emit(map[string]any{"t": "error", "text": "não enviou " + o.name + ": " + err.Error()})
+		emit(map[string]any{"t": "error", "text": tr("couldn't send ", "não enviou ") + o.name + ": " + err.Error()})
 	}
 	// Ours plays (or opens) without a download.
 	if md, _ := mediaOf(o.msg); md != nil {

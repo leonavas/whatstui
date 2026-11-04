@@ -95,7 +95,7 @@ impl App {
             return self.note(why);
         }
         if self.phase != Phase::Ready {
-            return self.note("Ainda conectando; tente de novo em instantes.");
+            return self.note(tr!("Still connecting; try again in a moment.", "Ainda conectando; tente de novo em instantes."));
         }
         let mine = self
             .msgs
@@ -135,7 +135,7 @@ impl App {
                 self.flash = Some((t.clone(), std::time::Instant::now()));
                 self.jump = Some(t);
             }
-            None => self.note("A mensagem original não está carregada"),
+            None => self.note(tr!("The original message isn't loaded", "A mensagem original não está carregada")),
         }
     }
 
@@ -501,7 +501,11 @@ pub fn draw_who(f: &mut Frame, app: &mut App) {
     let blank = |edge: Style| Line::from(vec![Span::styled(" ", edge), Span::styled(" ".repeat(iw - 2), bg), Span::styled(" ", edge)]);
     let meta = Style::new().fg(META_IN).bg(DAY_PILL);
     let mut lines = vec![blank(edge)];
-    let mut head = vec![Span::styled(format!("  {total} {}", if total == 1 { "reação" } else { "reações" }), meta)];
+    let word = match total {
+        1 => tr!("reaction", "reação"),
+        _ => tr!("reactions", "reações"),
+    };
+    let mut head = vec![Span::styled(format!("  {total} {word}"), meta)];
     fill(&mut head);
     lines.push(Line::from(head));
     lines.push(blank(bg));
@@ -509,7 +513,7 @@ pub fn draw_who(f: &mut Frame, app: &mut App) {
     // The tabs, the one shown on a pill.
     let mut labels: Vec<String> = Vec::new();
     if reactions.len() > 1 {
-        labels.push(format!("Todas {total}"));
+        labels.push(tr!(format!("All {total}"), format!("Todas {total}")));
     }
     labels.extend(reactions.iter().map(|r| format!("{} {}", r.emoji, r.count)));
     let mut spans = vec![Span::styled(" ", bg)];
@@ -550,7 +554,7 @@ pub fn draw_who(f: &mut Frame, app: &mut App) {
             let used: usize = spans.iter().map(|s| s.content.width()).sum();
             spans.push(Span::styled(" ".repeat(iw.saturating_sub(used)), bg));
         };
-        let name = if p.mine { "Você".to_string() } else { display_name(&p.name, &p.jid) };
+        let name = if p.mine { tr!("You", "Você").to_string() } else { display_name(&p.name, &p.jid) };
         let room = iw.saturating_sub(lead + p.emoji.width() + 4);
         let name = truncate(&name, room);
         let gap = iw.saturating_sub(lead + name.width() + p.emoji.width() + 3);
@@ -568,7 +572,7 @@ pub fn draw_who(f: &mut Frame, app: &mut App) {
             Span::styled("   ", bg),
         ]));
         if p.mine {
-            let mut under = vec![Span::styled(" ".repeat(lead), bg), Span::styled("Clique para remover", meta)];
+            let mut under = vec![Span::styled(" ".repeat(lead), bg), Span::styled(tr!("Click to remove", "Clique para remover"), meta)];
             fill(&mut under);
             lines.push(Line::from(under));
         }

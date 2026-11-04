@@ -1,9 +1,11 @@
-//! whatsapp-tui: a lightweight WhatsApp client for the terminal. The
+//! whatstui: a lightweight WhatsApp client for the terminal. The
 //! WhatsApp side lives in a Go helper (bridge/, whatsmeow) this binary
 //! carries; this side is the TUI, fed by the helper's JSON lines. It also
 //! tells other programs what is unread and takes their commands (`events`,
 //! `ipc`, `cli`).
 
+#[macro_use]
+mod i18n;
 mod app;
 mod attach;
 mod avatar;
@@ -80,19 +82,21 @@ fn cell_px() -> Option<(u16, u16)> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("-V" | "--version") => return println!("whatsapp-tui {}", env!("CARGO_PKG_VERSION")),
+        Some("-V" | "--version") => return println!("whatstui {}", env!("CARGO_PKG_VERSION")),
         Some("-h" | "--help") => return print!("{}", cli::usage()),
         Some("--new-instance") | None => {}
         Some(a) if a.starts_with('-') => {
-            eprint!("whatsapp-tui: unknown option {a}\n{}", cli::usage());
+            eprint!("whatstui: unknown option {a}\n{}", cli::usage());
             std::process::exit(2);
         }
         _ => {}
     }
     if let Err(e) = bridge::migrate() {
-        eprintln!("whatsapp-tui: não protegeu os dados da conta: {e}");
+        // Before `i18n::init` (the config isn't read yet): English.
+        eprintln!("{}", tr!(format!("whatstui: couldn't protect the account data: {e}"), format!("whatstui: não protegeu os dados da conta: {e}")));
         std::process::exit(1);
     }
+    i18n::init();
     let start = match cli::run(&args) {
         Some(cli::Next::Exit(code)) => std::process::exit(code),
         Some(cli::Next::Start(cmd)) => cmd,
@@ -109,22 +113,22 @@ fn main() {
         Some(ipc::Claim::Owner(s)) => Some(s),
         Some(ipc::Claim::Running) => {
             if let Err(e) = ipc::send(&serde_json::json!({ "cmd": "focus" })) {
-                eprintln!("whatsapp-tui is already running, but didn't answer: {e}");
+                eprintln!("whatstui is already running, but didn't answer: {e}");
                 std::process::exit(1);
             }
             // Only Hyprland lets us bring the other window up; elsewhere, say where it is.
             if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
-                eprintln!("whatsapp-tui is already open in another window");
+                eprintln!("whatstui is already open in another window");
             }
             return;
         }
         None => None,
     };
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        eprintln!("whatsapp-tui: needs a terminal");
+        eprintln!("whatstui: needs a terminal");
         std::process::exit(1);
     }
-    // The one that owns the socket speaks for whatsapp-tui; a second one keeps quiet.
+    // The one that owns the socket speaks for whatstui; a second one keeps quiet.
     let owner = server.is_some();
     let (tx, rx) = mpsc::channel();
     if let Some(s) = server {
@@ -229,6 +233,7 @@ fn main() {
     if app.account.restart {
         drop(app);
         drop(term);
-        eprintln!("whatsapp-tui: não reiniciou: {}", update::restart());
+        let e = update::restart();
+        eprintln!("{}", tr!(format!("whatstui: couldn't restart: {e}"), format!("whatstui: não reiniciou: {e}")));
     }
 }

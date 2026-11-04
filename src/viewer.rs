@@ -47,7 +47,7 @@ pub struct View {
     // Where things were on the last draw, for mpv and the mouse.
     media: Rect,
     bar: Rect,
-    /// The top bar's hints, as `HINTS` has them.
+    /// The top bar's hints, as `hints` has them.
     btns: [Rect; 4],
     /// A sticker's place among your favorites, once the bridge says; its
     /// hint (`f`) goes before the others.
@@ -56,7 +56,14 @@ pub struct View {
 }
 
 /// The top bar's keys, as slick's viewer has them.
-const HINTS: [(&str, &str); 4] = [("b", "baixar"), ("p", "mostrar na pasta"), ("o", "abrir fora"), ("Esc", "fecha")];
+fn hints() -> [(&'static str, &'static str); 4] {
+    [
+        ("b", tr!("download", "baixar")),
+        ("p", tr!("show in folder", "mostrar na pasta")),
+        ("o", tr!("open outside", "abrir fora")),
+        ("Esc", tr!("close", "fecha")),
+    ]
+}
 
 impl App {
     /// Opens the message's photo or video big; a video plays at once,
@@ -163,7 +170,7 @@ impl App {
             self.cmd(json!({"c": "download", "chat": chat, "id": id}));
         }
         self.save_when_ready = Some((chat, id, reveal));
-        self.note("Baixando…");
+        self.note(tr!("Downloading…", "Baixando…"));
     }
 
     /// Copies the message's file to the downloads folder, named as WhatsApp
@@ -190,7 +197,7 @@ impl App {
                         self.saved.insert(key, p.clone());
                         p
                     }
-                    Err(e) => return self.note(format!("não salvou: {e}")),
+                    Err(e) => return self.note(tr!(format!("couldn't save: {e}"), format!("não salvou: {e}"))),
                 }
             }
         };
@@ -199,7 +206,7 @@ impl App {
                 crate::links::open(&dir.to_string_lossy());
             }
         }
-        self.note(format!("Salvo em {}", pretty(&path)));
+        self.note(tr!(format!("Saved to {}", pretty(&path)), format!("Salvo em {}", pretty(&path))));
     }
 
     /// Right after a draw that left the video's cells blank: mpv takes them.
@@ -220,7 +227,7 @@ impl App {
                         return crate::links::open(&path);
                     }
                     Err(e) => {
-                        self.note(format!("não tocou o vídeo: {e}"));
+                        self.note(tr!(format!("couldn't play the video: {e}"), format!("não tocou o vídeo: {e}")));
                         State::Idle
                     }
                 }
@@ -310,8 +317,8 @@ pub fn draw(f: &mut Frame, app: &mut App) -> bool {
     // The top bar: who sent it and when on the left, the keys on the right.
     let bar = Rect { height: 2.min(area.height), ..area };
     // A sticker's favorite hint first, once the bridge has said which.
-    let fav = fav.map(|on| ("f", if on { "desfavoritar" } else { "favoritar" }));
-    let hints: Vec<(&str, &str)> = fav.into_iter().chain(HINTS).collect();
+    let fav = fav.map(|on| ("f", if on { tr!("unfavorite", "desfavoritar") } else { tr!("favorite", "favoritar") }));
+    let hints: Vec<(&str, &str)> = fav.into_iter().chain(hints()).collect();
     let hint_w = |(k, l): (&str, &str)| (k.width() + 3 + l.width()) as u16;
     let mut x = area.right().saturating_sub(2 + hints.iter().map(|&h| hint_w(h) + 3).sum::<u16>() - 3);
     let first = x;
@@ -342,13 +349,16 @@ pub fn draw(f: &mut Frame, app: &mut App) -> bool {
         chat.clone()
     };
     let name = match () {
-        _ if m.from_me => "Você".to_string(),
+        _ if m.from_me => tr!("You", "Você").to_string(),
         _ if group && !m.sender_name.is_empty() => display_name(&m.sender_name, &m.sender),
         _ if group => phone(&m.sender),
         _ => display_name(&app.name_of(&chat).unwrap_or_else(|| m.sender_name.clone()), &chat),
     };
     let t = local(m.ts);
-    let mut when = format!("{} às {}", capital(&day_label(t)), t.format("%H:%M"));
+    let mut when = tr!(
+        format!("{} at {}", capital(&day_label(t)), t.format("%H:%M")),
+        format!("{} às {}", capital(&day_label(t)), t.format("%H:%M")),
+    );
     if group {
         if let Some(g) = app.name_of(&chat) {
             when = format!("{when} · {g}");
@@ -380,14 +390,14 @@ pub fn draw(f: &mut Frame, app: &mut App) -> bool {
     }
     let status = match app.notice.as_ref() {
         // Red for what went wrong; a save is good news.
-        Some((n, _)) if n.starts_with("Salvo") || n.starts_with("Baixando") => Span::styled(n.clone(), Style::new().fg(crate::ui::green())),
+        Some((n, _)) if ["Salvo", "Baixando", "Saved", "Downloading"].iter().any(|w| n.starts_with(w)) => Span::styled(n.clone(), Style::new().fg(crate::ui::green())),
         Some((n, _)) => Span::styled(n.clone(), Style::new().fg(Color::Red)),
         None => Span::styled(
             match state {
-                State::Loading => "Baixando…".to_string(),
-                State::Starting | State::Playing => "Espaço para · Esc fecha".into(),
-                State::Idle if video && gif => "GIF · Espaço ou clique toca".into(),
-                State::Idle if video => format!("{} · Espaço ou clique toca", crate::media::clock(md.seconds)),
+                State::Loading => tr!("Downloading…", "Baixando…").to_string(),
+                State::Starting | State::Playing => tr!("Space stops · Esc closes", "Espaço para · Esc fecha").into(),
+                State::Idle if video && gif => tr!("GIF · Space or click plays", "GIF · Espaço ou clique toca").into(),
+                State::Idle if video => format!("{} · {}", crate::media::clock(md.seconds), tr!("Space or click plays", "Espaço ou clique toca")),
                 State::Idle => String::new(),
             },
             Style::new().fg(META_IN),

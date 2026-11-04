@@ -1,6 +1,6 @@
-# Events and the running whatsapp-tui
+# Events and the running whatstui
 
-whatsapp-tui tells other programs what is going on, and takes commands from
+whatstui tells other programs what is going on, and takes commands from
 them, so you can build your own bar widget, notifier or automation on top of
 it. The WhatsApp plugin for the Omarchy bar is built this way, using nothing
 private.
@@ -9,36 +9,36 @@ There are three ways in:
 
 | what | where | good for |
 | --- | --- | --- |
-| snapshot | `$XDG_RUNTIME_DIR/whatsapp-tui/state.json`, or `whatsapp-tui status --json` | bars that poll or watch a file |
-| event stream | `whatsapp-tui events` (JSON lines) | long-running scripts |
-| hooks | `~/.config/whatsapp-tui/hooks/<event>.d/*` | one-shot reactions (a sound, a notification) |
+| snapshot | `$XDG_RUNTIME_DIR/whatstui/state.json`, or `whatstui status --json` | bars that poll or watch a file |
+| event stream | `whatstui events` (JSON lines) | long-running scripts |
+| hooks | `~/.config/whatstui/hooks/<event>.d/*` | one-shot reactions (a sound, a notification) |
 
-whatsapp-tui runs once per session. Running `whatsapp-tui` again brings the
-open one to the front; `whatsapp-tui --new-instance` opens a second one anyway.
+whatstui runs once per session. Running `whatstui` again brings the
+open one to the front; `whatstui --new-instance` opens a second one anyway.
 That one publishes nothing and takes no commands, and since WhatsApp lets a
 linked device hold one connection at a time, it takes the connection over from
 the first one.
 
-whatsapp-tui sends no desktop notifications itself: that is left to the bar
+whatstui sends no desktop notifications itself: that is left to the bar
 plugin and to hooks, which get everything they need in `message.new`. It does
 show a tray icon (StatusNotifierItem), white, with a green dot while chats
 that ping wait (`attention`), plain during a pause; a click brings the window
 up. A bar widget that shows its own icon can turn it off with `tray = false`
-in `~/.config/whatsapp-tui/config`.
+in `~/.config/whatstui/config`.
 
 ## The window
 
-Launchers open whatsapp-tui in a terminal whose window class is
-`org.omarchy.whatsapp-tui`:
+Launchers open whatstui in a terminal whose window class is
+`org.omarchy.whatstui`:
 
 ```sh
-omarchy-launch-tui --app-id=org.omarchy.whatsapp-tui whatsapp-tui
+omarchy-launch-tui --app-id=org.omarchy.whatstui whatstui
 # or
-xdg-terminal-exec --app-id=org.omarchy.whatsapp-tui -e whatsapp-tui
+xdg-terminal-exec --app-id=org.omarchy.whatstui -e whatstui
 ```
 
-`whatsapp-tui focus` and `whatsapp-tui open` bring the window with that class
-to the front (Hyprland). Set `WHATSAPP_TUI_WINDOW_CLASS` to use another class.
+`whatstui focus` and `whatstui open` bring the window with that class
+to the front (Hyprland). Set `WHATSTUI_WINDOW_CLASS` to use another class.
 
 ## Snapshot
 
@@ -62,7 +62,7 @@ it changes. Message text never touches the disk: `$XDG_RUNTIME_DIR` is a tmpfs.
     {
       "id": "5511900000000@s.whatsapp.net", "kind": "dm", "name": "Bruno Lima",
       "unread": 2, "latest": 1760000000, "muted": false, "quiet": false,
-      "avatar": "/home/ana/.local/share/whatsapp-tui/avatars/5511900000000_s_whatsapp_net.jpg",
+      "avatar": "/home/ana/.local/share/whatstui/avatars/5511900000000_s_whatsapp_net.jpg",
       "messages": [
         { "id": "3EB0A1B2C3D4E5F60718", "ts": 1759999900, "sender": "5511900000000@s.whatsapp.net",
           "author": "Bruno Lima", "text": "Oi!", "html": "Oi!" },
@@ -111,16 +111,16 @@ it changes. Message text never touches the disk: `$XDG_RUNTIME_DIR` is a tmpfs.
   `messages` adds up their `unread`, and `direct_messages` and `group_messages`
   split that. `archived` counts the unread chats that are archived, which are
   in nothing else.
-- `paused` is the pause you set (`whatsapp-tui pause`): `{ "paused": false,
+- `paused` is the pause you set (`whatstui pause`): `{ "paused": false,
   "until": null }` while notifications are on. WhatsApp has no do-not-disturb
   of its own, so this pause lives here only: it survives restarts, keeps the
   badge counting and only turns off `notify` in `message.new`.
-- `connected` is false while whatsapp-tui is connecting or reconnecting to
+- `connected` is false while whatstui is connecting or reconnecting to
   WhatsApp; the counts are then the last ones it knew.
-- The chat open in whatsapp-tui only counts as unread while its window doesn't
+- The chat open in whatstui only counts as unread while its window doesn't
   have focus: getting focus reads it.
-- After `whatsapp-tui quit` the file says `"running": false`. After a crash it
-  can be left over: `whatsapp-tui status --json` checks that whatsapp-tui
+- After `whatstui quit` the file says `"running": false`. After a crash it
+  can be left over: `whatstui status --json` checks that whatstui
   really is running.
 
 ## Events
@@ -141,10 +141,10 @@ Each event is one line of JSON:
 | `pause.changed` | `paused`, `until` (as in the snapshot) |
 
 `message.new` covers messages other people send you, as they arrive. It does
-not replay what was already waiting when whatsapp-tui started, nor messages
+not replay what was already waiting when whatstui started, nor messages
 you send (from here or your phone), edits or deletions. `notify` is whether it
 deserves a notification: false when the chat is muted, while notifications are
-paused, and for the chat open in whatsapp-tui while its window has focus (it is
+paused, and for the chat open in whatstui while its window has focus (it is
 read there). Archived chats still notify, as on WhatsApp.
 
 `conversation.read` says a chat left the snapshot's unread ones: read here,
@@ -155,22 +155,22 @@ taken back.
 
 ```sh
 # every new message that should notify, as it arrives
-whatsapp-tui events | jq -c 'select(.event == "message.new" and .data.notify)'
+whatstui events | jq -c 'select(.event == "message.new" and .data.notify)'
 ```
 
-`whatsapp-tui events` waits for whatsapp-tui when it isn't running and
+`whatstui events` waits for whatstui when it isn't running and
 reconnects when it restarts, so it can run from your session's autostart.
 
 ## Hooks
 
-Every executable file in `~/.config/whatsapp-tui/hooks/<event>.d/` runs for
+Every executable file in `~/.config/whatstui/hooks/<event>.d/` runs for
 that event, with the event line on stdin and its name in
-`$WHATSAPP_TUI_EVENT`. They run in the background, in name order, and nothing
+`$WHATSTUI_EVENT`. They run in the background, in name order, and nothing
 waits for them.
 
 ```sh
 #!/bin/sh
-# ~/.config/whatsapp-tui/hooks/message.new.d/notify
+# ~/.config/whatstui/hooks/message.new.d/notify
 ev=$(cat)
 echo "$ev" | jq -e '.data.notify' >/dev/null || exit 0
 notify-send -a WhatsApp \
@@ -180,7 +180,7 @@ notify-send -a WhatsApp \
 
 ```sh
 #!/bin/sh
-# ~/.config/whatsapp-tui/hooks/message.new.d/dm-sound
+# ~/.config/whatstui/hooks/message.new.d/dm-sound
 jq -e '.data.notify and .data.conversation.kind == "dm"' >/dev/null &&
   pw-play /usr/share/sounds/freedesktop/stereo/message.oga
 ```
@@ -188,34 +188,34 @@ jq -e '.data.notify and .data.conversation.kind == "dm"' >/dev/null &&
 ## Commands
 
 ```sh
-whatsapp-tui open <chat> [message-id] [--background]
-whatsapp-tui focus
-whatsapp-tui mark-read <chat>
-whatsapp-tui pause <minutes | 30m | 1h | 8h | tomorrow>
-whatsapp-tui resume
-whatsapp-tui quit
-whatsapp-tui status [--json]
-whatsapp-tui events
+whatstui open <chat> [message-id] [--background]
+whatstui focus
+whatstui mark-read <chat>
+whatstui pause <minutes | 30m | 1h | 8h | tomorrow>
+whatstui resume
+whatstui quit
+whatstui status [--json]
+whatstui events
 ```
 
-`<chat>` is a JID as the snapshot has it. `whatsapp-tui open` shows the chat,
+`<chat>` is a JID as the snapshot has it. `whatstui open` shows the chat,
 scrolled to the message when its id is given, and brings the window to the
-front (Hyprland) unless `--background` is given. With whatsapp-tui closed,
+front (Hyprland) unless `--background` is given. With whatstui closed,
 `open` and `focus` start it, in a new terminal window (`xdg-terminal-exec`,
 with the window class above) when not run from one.
 
 `pause` takes minutes (`45`), a duration (`30m`, `1h`, `8h`, `1h30m`) or
 `tomorrow` (9 AM tomorrow); a new pause replaces the old one. `pause` and
-`resume` work with whatsapp-tui closed too: the pause is kept in
-`~/.local/share/whatsapp-tui/pause.json`.
+`resume` work with whatstui closed too: the pause is kept in
+`~/.local/share/whatstui/pause.json`.
 
 Underneath, these write JSON lines to the socket at
-`$XDG_RUNTIME_DIR/whatsapp-tui/whatsapp-tui.sock`, which you can also do
+`$XDG_RUNTIME_DIR/whatstui/whatstui.sock`, which you can also do
 directly:
 
 ```sh
 echo '{"cmd":"open","chat":"5511900000000@s.whatsapp.net","id":"3EB0A1B2C3D4E5F60719"}' |
-  socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/whatsapp-tui/whatsapp-tui.sock
+  socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/whatstui/whatstui.sock
 ```
 
 Commands: `focus`, `open` (`chat`, `id`, `focus`: false to stay in the
@@ -227,10 +227,10 @@ the event stream.
 
 | what | where |
 | --- | --- |
-| snapshot, socket, lock | `$XDG_RUNTIME_DIR/whatsapp-tui/` |
-| session, chats, pictures, drafts, pause | `~/.local/share/whatsapp-tui/` |
-| downloaded media, the bridge | `~/.cache/whatsapp-tui/` |
-| hooks | `~/.config/whatsapp-tui/hooks/` |
+| snapshot, socket, lock | `$XDG_RUNTIME_DIR/whatstui/` |
+| session, chats, pictures, drafts, pause | `~/.local/share/whatstui/` |
+| downloaded media, the bridge | `~/.cache/whatstui/` |
+| hooks | `~/.config/whatstui/hooks/` |
 
 Folders from before the rename (`~/.local/share/zap`, `~/.cache/zap`) are moved
 to these on the first start, session included.

@@ -47,7 +47,7 @@ type Media struct {
 	File string `json:"file,omitempty"`
 }
 
-const unavailable = "Mídia indisponível"
+var unavailable = tr("Media unavailable", "Mídia indisponível")
 
 // mediaOf finds the downloadable part of a message: what it is, and a
 // message with only that part, to keep for downloading it later.
@@ -230,13 +230,13 @@ func extOf(mimeType string) string {
 	return "bin"
 }
 
-// mediaDir is where the media goes: ~/.cache/whatsapp-tui/media.
+// mediaDir is where the media goes: ~/.cache/whatstui/media.
 func mediaDir() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "whatsapp-tui", "media")
+	return filepath.Join(dir, "whatstui", "media")
 }
 
 // mediaFile is where a message's media goes: <mediaDir>/<chat>_<id>.<ext>.
@@ -283,7 +283,7 @@ func (b *Bridge) sweep() {
 	}
 }
 
-// trimCache brings the cache folder (~/.cache/whatsapp-tui) under
+// trimCache brings the cache folder (~/.cache/whatstui) under
 // cacheBudget, the media least recently seen going first.
 func trimCache() {
 	root := filepath.Dir(mediaDir())

@@ -49,9 +49,9 @@ struct Item {
 impl Item {
     fn label(&self) -> String {
         match self.unread {
-            0 => "WhatsApp TUI".into(),
-            1 => "WhatsApp TUI · 1 conversa não lida".into(),
-            n => format!("WhatsApp TUI · {n} conversas não lidas"),
+            0 => "WhatsTUI".into(),
+            1 => tr!("WhatsTUI · 1 unread chat", "WhatsTUI · 1 conversa não lida").into(),
+            n => tr!(format!("WhatsTUI · {n} unread chats"), format!("WhatsTUI · {n} conversas não lidas")),
         }
     }
 }
@@ -97,9 +97,9 @@ impl ksni::Tray for Item {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
         vec![
-            StandardItem { label: "Abrir".into(), activate: Box::new(|_: &mut Self| focus()), ..Default::default() }.into(),
+            StandardItem { label: tr!("Open", "Abrir").into(), activate: Box::new(|_: &mut Self| focus()), ..Default::default() }.into(),
             StandardItem {
-                label: "Sair".into(),
+                label: tr!("Quit", "Sair").into(),
                 activate: Box::new(|i: &mut Self| {
                     let _ = i.events.send(Ev::Remote(Cmd::Quit));
                 }),
@@ -110,12 +110,12 @@ impl ksni::Tray for Item {
     }
 }
 
-/// The class of the terminal window whatsapp-tui runs in, as launchers set it.
+/// The class of the terminal window whatstui runs in, as launchers set it.
 pub fn window_class() -> String {
-    std::env::var("WHATSAPP_TUI_WINDOW_CLASS").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| "org.omarchy.whatsapp-tui".into())
+    std::env::var("WHATSTUI_WINDOW_CLASS").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| "org.omarchy.whatstui".into())
 }
 
-/// Brings the terminal running whatsapp-tui to the front. Hyprland only.
+/// Brings the terminal running whatstui to the front. Hyprland only.
 pub fn focus() {
     if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
         return;

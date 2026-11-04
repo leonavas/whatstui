@@ -203,11 +203,11 @@ pub fn mentions(text: &str, ms: &[Mention]) -> (String, Vec<(usize, usize, Strin
     let (mut out, mut at, mut n) = (String::new(), Vec::new(), 0);
     let mut i = 0;
     while i < c.len() {
-        // "@all", everyone in the group: "@todos", as WhatsApp shows it, a
-        // mention of nobody in particular.
+        // "@all", everyone in the group: "@all" in English, "@todos" in
+        // Portuguese, as WhatsApp shows it, a mention of nobody in particular.
         let all = c[i..].starts_with(&['@', 'a', 'l', 'l']) && c.get(i + 4).is_none_or(|&x| !word(x));
         if all && (i == 0 || !word(c[i - 1])) && ms.iter().any(|m| m.all) {
-            let shown = "@todos";
+            let shown = tr!("@all", "@todos");
             at.push((n, n + shown.len(), MENTION.to_string()));
             out.push_str(shown);
             n += shown.len();

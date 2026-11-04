@@ -1,5 +1,5 @@
-# A tag v* builds whatsapp-tui for Linux and attaches
-# whatsapp-tui-<version>-<target>.tar.gz, with a .sha256, to that tag's
+# A tag v* builds whatstui for Linux and attaches
+# whatstui-<version>-<target>.tar.gz, with a .sha256, to that tag's
 # release. install.sh downloads exactly these names. Each archive holds the
 # binary (the Go helper inside it), the desktop entry and the icons.
 name: release
@@ -49,9 +49,9 @@ jobs:
       - name: Package
         run: |
           version="${GITHUB_REF_NAME#v}"
-          name="whatsapp-tui-${version}-${{ matrix.target }}.tar.gz"
+          name="whatstui-${version}-${{ matrix.target }}.tar.gz"
           mkdir pkg
-          cp target/release/whatsapp-tui assets/whatsapp-tui.desktop assets/whatsapp-tui.svg assets/whatsapp-tui-256.png pkg/
+          cp target/release/whatstui assets/whatstui.desktop assets/whatstui.svg assets/whatstui-256.png pkg/
           tar -czf "$name" -C pkg .
           sha256sum "$name" > "$name.sha256"
           echo "ASSET=$name" >> "$GITHUB_ENV"
