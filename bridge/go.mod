@@ -3,7 +3,7 @@ module whatstui/bridge
 go 1.27.2
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/mattn/go-sqlite3 v1.14.53
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/whatsmeow v0.0.0-20261007111105-c386243a72ba
 	google.golang.org/protobuf v1.36.12
